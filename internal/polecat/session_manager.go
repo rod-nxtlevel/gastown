@@ -56,7 +56,7 @@ type SessionStartOptions struct {
 	// Issue is an optional issue ID to work on.
 	Issue string
 
-	// Command overrides the default "claude" command.
+	// Command overrides the default "codex" command.
 	Command string
 
 	// Account specifies the account handle to use (overrides default).

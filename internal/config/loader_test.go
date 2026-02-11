@@ -828,17 +828,17 @@ func TestMessagingConfigPath(t *testing.T) {
 func TestRuntimeConfigDefaults(t *testing.T) {
 	t.Parallel()
 	rc := DefaultRuntimeConfig()
-	if rc.Provider != "claude" {
-		t.Errorf("Provider = %q, want %q", rc.Provider, "claude")
+	if rc.Provider != "codex" {
+		t.Errorf("Provider = %q, want %q", rc.Provider, "codex")
 	}
-	if !isClaudeCommand(rc.Command) {
-		t.Errorf("Command = %q, want claude or path ending in /claude", rc.Command)
+	if rc.Command != "codex" {
+		t.Errorf("Command = %q, want %q", rc.Command, "codex")
 	}
-	if len(rc.Args) != 1 || rc.Args[0] != "--dangerously-skip-permissions" {
-		t.Errorf("Args = %v, want [--dangerously-skip-permissions]", rc.Args)
+	if len(rc.Args) != 1 || rc.Args[0] != "--yolo" {
+		t.Errorf("Args = %v, want [--yolo]", rc.Args)
 	}
-	if rc.Session == nil || rc.Session.SessionIDEnv != "CLAUDE_SESSION_ID" {
-		t.Errorf("SessionIDEnv = %q, want %q", rc.Session.SessionIDEnv, "CLAUDE_SESSION_ID")
+	if rc.Session == nil || rc.Session.SessionIDEnv != "" {
+		t.Errorf("SessionIDEnv = %q, want %q", rc.Session.SessionIDEnv, "")
 	}
 }
 
@@ -849,24 +849,24 @@ func TestRuntimeConfigBuildCommand(t *testing.T) {
 		rc           *RuntimeConfig
 		wantContains []string // Parts the command should contain
 		isClaudeCmd  bool     // Whether command should be claude (or path to claude)
+		isCodexCmd   bool     // Whether command should be codex
 	}{
 		{
 			name:         "nil config uses defaults",
 			rc:           nil,
-			wantContains: []string{"--dangerously-skip-permissions"},
-			isClaudeCmd:  true,
+			wantContains: []string{"--yolo"},
+			isCodexCmd:   true,
 		},
 		{
 			name:         "default config",
 			rc:           DefaultRuntimeConfig(),
-			wantContains: []string{"--dangerously-skip-permissions"},
-			isClaudeCmd:  true,
+			wantContains: []string{"--yolo"},
+			isCodexCmd:   true,
 		},
 		{
 			name:         "custom command",
 			rc:           &RuntimeConfig{Command: "aider", Args: []string{"--no-git"}},
 			wantContains: []string{"aider", "--no-git"},
-			isClaudeCmd:  false,
 		},
 		{
 			name:         "multiple args",
@@ -877,8 +877,8 @@ func TestRuntimeConfigBuildCommand(t *testing.T) {
 		{
 			name:         "empty command uses default",
 			rc:           &RuntimeConfig{Command: "", Args: nil},
-			wantContains: []string{"--dangerously-skip-permissions"},
-			isClaudeCmd:  true,
+			wantContains: []string{"--yolo"},
+			isCodexCmd:   true,
 		},
 	}
 
@@ -898,6 +898,12 @@ func TestRuntimeConfigBuildCommand(t *testing.T) {
 					t.Errorf("BuildCommand() = %q, command should be claude or path to claude", got)
 				}
 			}
+			if tt.isCodexCmd {
+				parts := strings.Fields(got)
+				if len(parts) > 0 && parts[0] != "codex" {
+					t.Errorf("BuildCommand() = %q, command should be codex", got)
+				}
+			}
 		})
 	}
 }
@@ -905,29 +911,39 @@ func TestRuntimeConfigBuildCommand(t *testing.T) {
 func TestRuntimeConfigBuildCommandWithPrompt(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name         string
-		rc           *RuntimeConfig
-		prompt       string
-		wantContains []string // Parts the command should contain
-		isClaudeCmd  bool     // Whether command should be claude (or path to claude)
+		name            string
+		rc              *RuntimeConfig
+		prompt          string
+		wantContains    []string // Parts the command should contain
+		wantNotContains []string // Parts the command should NOT contain
+		isClaudeCmd     bool     // Whether command should be claude (or path to claude)
+		isCodexCmd      bool     // Whether command should be codex
 	}{
 		{
-			name:         "no prompt",
+			name:         "no prompt (codex default, prompt_mode=none)",
 			rc:           DefaultRuntimeConfig(),
 			prompt:       "",
-			wantContains: []string{"--dangerously-skip-permissions"},
-			isClaudeCmd:  true,
+			wantContains: []string{"--yolo"},
+			isCodexCmd:   true,
 		},
 		{
-			name:         "with prompt",
-			rc:           DefaultRuntimeConfig(),
+			name:            "codex ignores prompt (prompt_mode=none)",
+			rc:              DefaultRuntimeConfig(),
+			prompt:          "gt prime",
+			wantContains:    []string{"--yolo"},
+			wantNotContains: []string{"gt prime"},
+			isCodexCmd:      true,
+		},
+		{
+			name:         "claude with prompt (prompt_mode=arg)",
+			rc:           &RuntimeConfig{Provider: "claude", Command: "claude", Args: []string{"--dangerously-skip-permissions"}},
 			prompt:       "gt prime",
 			wantContains: []string{"--dangerously-skip-permissions", `"gt prime"`},
 			isClaudeCmd:  true,
 		},
 		{
-			name:         "prompt with quotes",
-			rc:           DefaultRuntimeConfig(),
+			name:         "claude prompt with quotes",
+			rc:           &RuntimeConfig{Provider: "claude", Command: "claude", Args: []string{"--dangerously-skip-permissions"}},
 			prompt:       `Hello "world"`,
 			wantContains: []string{"--dangerously-skip-permissions", `"Hello \"world\""`},
 			isClaudeCmd:  true,
@@ -937,14 +953,12 @@ func TestRuntimeConfigBuildCommandWithPrompt(t *testing.T) {
 			rc:           &RuntimeConfig{Command: "aider", Args: []string{}, InitialPrompt: "/help"},
 			prompt:       "",
 			wantContains: []string{"aider", `"/help"`},
-			isClaudeCmd:  false,
 		},
 		{
 			name:         "override takes precedence over config",
 			rc:           &RuntimeConfig{Command: "aider", Args: []string{}, InitialPrompt: "/help"},
 			prompt:       "custom prompt",
 			wantContains: []string{"aider", `"custom prompt"`},
-			isClaudeCmd:  false,
 		},
 	}
 
@@ -957,11 +971,23 @@ func TestRuntimeConfigBuildCommandWithPrompt(t *testing.T) {
 					t.Errorf("BuildCommandWithPrompt(%q) = %q, should contain %q", tt.prompt, got, part)
 				}
 			}
+			// Check command does NOT contain certain parts
+			for _, part := range tt.wantNotContains {
+				if strings.Contains(got, part) {
+					t.Errorf("BuildCommandWithPrompt(%q) = %q, should NOT contain %q", tt.prompt, got, part)
+				}
+			}
 			// Check if command starts with claude (or path to claude)
 			if tt.isClaudeCmd {
 				parts := strings.Fields(got)
 				if len(parts) > 0 && !isClaudeCommand(parts[0]) {
 					t.Errorf("BuildCommandWithPrompt(%q) = %q, command should be claude or path to claude", tt.prompt, got)
+				}
+			}
+			if tt.isCodexCmd {
+				parts := strings.Fields(got)
+				if len(parts) > 0 && parts[0] != "codex" {
+					t.Errorf("BuildCommandWithPrompt(%q) = %q, command should be codex", tt.prompt, got)
 				}
 			}
 		})
@@ -985,7 +1011,7 @@ func TestBuildAgentStartupCommand(t *testing.T) {
 	// New signature: (role, rig, townRoot, rigPath, prompt)
 	cmd := BuildAgentStartupCommand("witness", "gastown", "", "", "")
 
-	// Should contain environment variables (via 'exec env') and claude command
+	// Should contain environment variables (via 'exec env') and codex command
 	if !strings.Contains(cmd, "exec env") {
 		t.Error("expected 'exec env' in command")
 	}
@@ -995,8 +1021,8 @@ func TestBuildAgentStartupCommand(t *testing.T) {
 	if !strings.Contains(cmd, "BD_ACTOR=gastown/witness") {
 		t.Error("expected BD_ACTOR in command")
 	}
-	if !strings.Contains(cmd, "claude --dangerously-skip-permissions") {
-		t.Error("expected claude command in output")
+	if !strings.Contains(cmd, "codex --yolo") {
+		t.Error("expected codex command in output")
 	}
 }
 
@@ -1536,8 +1562,8 @@ func TestResolveRoleAgentConfigFallsBackToDefaults(t *testing.T) {
 	t.Parallel()
 	// Non-existent paths should use defaults
 	rc := ResolveRoleAgentConfig("polecat", "/nonexistent/town", "/nonexistent/rig")
-	if !isClaudeCommand(rc.Command) {
-		t.Errorf("Command = %q, want claude or path ending in /claude (default)", rc.Command)
+	if rc.Command != "codex" {
+		t.Errorf("Command = %q, want %q (default)", rc.Command, "codex")
 	}
 }
 
@@ -2160,7 +2186,7 @@ func TestLookupAgentConfigWithRigSettings(t *testing.T) {
 			name:            "unknown-agent",
 			rigSettings:     nil,
 			townSettings:    nil,
-			expectedCommand: "claude",
+			expectedCommand: "codex",
 			expectedFrom:    "builtin",
 		},
 		{
@@ -2273,7 +2299,7 @@ func TestFillRuntimeDefaults(t *testing.T) {
 		}
 	})
 
-	t.Run("empty command defaults to claude", func(t *testing.T) {
+	t.Run("empty command defaults to codex", func(t *testing.T) {
 		t.Parallel()
 		input := &RuntimeConfig{
 			Command: "",
@@ -2282,9 +2308,8 @@ func TestFillRuntimeDefaults(t *testing.T) {
 
 		result := fillRuntimeDefaults(input)
 
-		// Use isClaudeCommand to handle resolved paths (e.g., /opt/homebrew/bin/claude)
-		if !isClaudeCommand(result.Command) {
-			t.Errorf("Command: got %q, want claude or path ending in claude", result.Command)
+		if result.Command != "codex" {
+			t.Errorf("Command: got %q, want %q", result.Command, "codex")
 		}
 		// Args should be preserved, not overwritten
 		if len(result.Args) != 1 || result.Args[0] != "--custom-flag" {
@@ -2292,10 +2317,10 @@ func TestFillRuntimeDefaults(t *testing.T) {
 		}
 	})
 
-	t.Run("nil args defaults to skip-permissions", func(t *testing.T) {
+	t.Run("nil args defaults to yolo", func(t *testing.T) {
 		t.Parallel()
 		input := &RuntimeConfig{
-			Command: "claude",
+			Command: "codex",
 			Args:    nil,
 		}
 
@@ -2304,8 +2329,8 @@ func TestFillRuntimeDefaults(t *testing.T) {
 		if result.Args == nil || len(result.Args) == 0 {
 			t.Error("Args should have default value")
 		}
-		if result.Args[0] != "--dangerously-skip-permissions" {
-			t.Errorf("Args: got %v, want [--dangerously-skip-permissions]", result.Args)
+		if result.Args[0] != "--yolo" {
+			t.Errorf("Args: got %v, want [--yolo]", result.Args)
 		}
 	})
 

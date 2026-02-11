@@ -804,9 +804,9 @@ func (t *Tmux) IsSessionAttached(target string) bool {
 }
 
 // WakePane triggers a SIGWINCH in a pane by resizing it slightly then restoring.
-// This wakes up Claude Code's event loop by simulating a terminal resize.
+// This wakes up an agent's event loop by simulating a terminal resize.
 //
-// When Claude runs in a detached tmux session, its TUI library may not process
+// When an agent runs in a detached tmux session, its TUI library may not process
 // stdin until a terminal event occurs. Attaching triggers SIGWINCH which wakes
 // the event loop. This function simulates that by doing a resize dance.
 //
@@ -821,7 +821,7 @@ func (t *Tmux) WakePane(target string) {
 }
 
 // WakePaneIfDetached triggers a SIGWINCH only if the session is detached.
-// This avoids unnecessary latency on attached sessions where Claude is
+// This avoids unnecessary latency on attached sessions where the agent is
 // already processing terminal events.
 func (t *Tmux) WakePaneIfDetached(target string) {
 	if t.IsSessionAttached(target) {
@@ -830,10 +830,10 @@ func (t *Tmux) WakePaneIfDetached(target string) {
 	t.WakePane(target)
 }
 
-// NudgeSession sends a message to a Claude Code session reliably.
-// This is the canonical way to send messages to Claude sessions.
+// NudgeSession sends a message to an agent session reliably.
+// This is the canonical way to send messages to agent sessions.
 // Uses: literal mode + 500ms debounce + ESC (for vim mode) + separate Enter.
-// After sending, triggers SIGWINCH to wake Claude in detached sessions.
+// After sending, triggers SIGWINCH to wake agents in detached sessions.
 // Verification is the Witness's job (AI), not this function.
 //
 // IMPORTANT: Nudges to the same session are serialized to prevent interleaving.
@@ -887,7 +887,7 @@ func (t *Tmux) NudgeSession(session, message string) error {
 
 // NudgePane sends a message to a specific pane reliably.
 // Same pattern as NudgeSession but targets a pane ID (e.g., "%9") instead of session name.
-// After sending, triggers SIGWINCH to wake Claude in detached sessions.
+// After sending, triggers SIGWINCH to wake agents in detached sessions.
 // Nudges to the same pane are serialized to prevent interleaving.
 func (t *Tmux) NudgePane(pane, message string) error {
 	// Serialize nudges to this pane to prevent interleaving.

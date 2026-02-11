@@ -49,7 +49,7 @@ type TownSettings struct {
 	// DefaultAgent is the name of the agent preset to use by default.
 	// Can be a built-in preset ("claude", "gemini", "codex", "cursor", "auggie", "amp")
 	// or a custom agent name defined in settings/agents.json.
-	// Default: "claude"
+	// Default: "codex"
 	DefaultAgent string `json:"default_agent,omitempty"`
 
 	// Agents defines custom agent configurations or overrides.
@@ -85,7 +85,7 @@ func NewTownSettings() *TownSettings {
 	return &TownSettings{
 		Type:         "town-settings",
 		Version:      CurrentTownSettingsVersion,
-		DefaultAgent: "claude",
+		DefaultAgent: "codex",
 		Agents:       make(map[string]*RuntimeConfig),
 		RoleAgents:   make(map[string]string),
 	}
@@ -356,15 +356,15 @@ type CrewConfig struct {
 // without modifying startup code.
 type RuntimeConfig struct {
 	// Provider selects runtime-specific defaults and integration behavior.
-	// Known values: "claude", "codex", "generic". Default: "claude".
+	// Known values: "claude", "codex", "generic". Default: "codex".
 	Provider string `json:"provider,omitempty"`
 
-	// Command is the CLI command to invoke (e.g., "claude", "aider").
-	// Default: "claude"
+	// Command is the CLI command to invoke (e.g., "codex", "claude", "aider").
+	// Default: "codex"
 	Command string `json:"command,omitempty"`
 
 	// Args are additional command-line arguments.
-	// Default: ["--dangerously-skip-permissions"] for built-in agents.
+	// Default: ["--yolo"] for built-in agents.
 	// Empty array [] means no args (not "use defaults").
 	Args []string `json:"args"`
 
@@ -439,7 +439,7 @@ type RuntimeInstructionsConfig struct {
 
 // DefaultRuntimeConfig returns a RuntimeConfig with sensible defaults.
 func DefaultRuntimeConfig() *RuntimeConfig {
-	return normalizeRuntimeConfig(&RuntimeConfig{Provider: "claude"})
+	return normalizeRuntimeConfig(&RuntimeConfig{Provider: "codex"})
 }
 
 // BuildCommand returns the full command line string.
@@ -530,7 +530,7 @@ func normalizeRuntimeConfig(rc *RuntimeConfig) *RuntimeConfig {
 	}
 
 	if rc.Provider == "" {
-		rc.Provider = "claude"
+		rc.Provider = "codex"
 	}
 
 	if rc.Command == "" {

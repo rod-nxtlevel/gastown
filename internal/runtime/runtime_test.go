@@ -178,11 +178,11 @@ func TestStartupFallbackCommands_WithHooks(t *testing.T) {
 }
 
 func TestStartupFallbackCommands_NilConfig(t *testing.T) {
-	// Nil config defaults to claude provider, which has hooks
-	// So it returns nil (no fallback commands needed)
+	// Nil config defaults to codex provider, which has no hooks
+	// So it returns fallback commands (gt prime + mail check for autonomous roles)
 	commands := StartupFallbackCommands("polecat", nil)
-	if commands != nil {
-		t.Error("StartupFallbackCommands() with nil config should return nil (defaults to claude with hooks)")
+	if commands == nil || len(commands) == 0 {
+		t.Error("StartupFallbackCommands() with nil config should return commands (defaults to codex without hooks)")
 	}
 }
 
@@ -370,13 +370,13 @@ func TestGetStartupFallbackInfo_NoHooksNoPrompt(t *testing.T) {
 }
 
 func TestGetStartupFallbackInfo_NilConfig(t *testing.T) {
-	// Nil config defaults to Claude (hooks enabled, prompt "arg")
+	// Nil config defaults to Codex (no hooks, prompt_mode "none")
 	info := GetStartupFallbackInfo(nil)
-	if info.IncludePrimeInBeacon {
-		t.Error("Nil config (defaults to Claude) should NOT include prime instruction")
+	if !info.IncludePrimeInBeacon {
+		t.Error("Nil config (defaults to Codex) SHOULD include prime instruction (no hooks)")
 	}
-	if info.SendStartupNudge {
-		t.Error("Nil config (defaults to Claude) should NOT need startup nudge")
+	if !info.SendStartupNudge {
+		t.Error("Nil config (defaults to Codex) SHOULD need startup nudge (no hooks)")
 	}
 }
 

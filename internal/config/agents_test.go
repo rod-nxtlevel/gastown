@@ -391,7 +391,7 @@ func TestGetProcessNames(t *testing.T) {
 		{"auggie", []string{"auggie"}},
 		{"amp", []string{"amp"}},
 		{"opencode", []string{"opencode", "node", "bun"}},
-		{"unknown", []string{"node", "claude"}}, // Falls back to Claude's process
+		{"unknown", []string{"codex"}}, // Falls back to Codex's process
 	}
 
 	for _, tt := range tests {

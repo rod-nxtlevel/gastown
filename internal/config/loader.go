@@ -872,7 +872,7 @@ func SaveTownSettings(path string, settings *TownSettings) error {
 //     a. Town's custom agents (from TownSettings.Agents)
 //     b. Built-in presets (claude, gemini, codex)
 //  3. If rig has no Agent set, use town's default_agent
-//  4. Fall back to claude defaults
+//  4. Fall back to codex defaults
 //
 // townRoot is the path to the town directory (e.g., ~/gt).
 // rigPath is the path to the rig directory (e.g., ~/gt/gastown).
@@ -908,7 +908,7 @@ func ResolveAgentConfig(townRoot, rigPath string) *RuntimeConfig {
 	} else if townSettings.DefaultAgent != "" {
 		agentName = townSettings.DefaultAgent
 	} else {
-		agentName = "claude" // ultimate fallback
+		agentName = "codex" // ultimate fallback
 	}
 
 	return lookupAgentConfig(agentName, townSettings, rigSettings)
@@ -952,7 +952,7 @@ func ResolveAgentConfigWithOverride(townRoot, rigPath, agentOverride string) (*R
 	} else if townSettings.DefaultAgent != "" {
 		agentName = townSettings.DefaultAgent
 	} else {
-		agentName = "claude" // ultimate fallback
+		agentName = "codex" // ultimate fallback
 	}
 
 	// If an override is requested, validate it exists
@@ -1028,7 +1028,7 @@ func lookupAgentConfigIfExists(name string, townSettings *TownSettings, rigSetti
 // Resolution order:
 //  1. Rig's RoleAgents[role] - if set, look up that agent
 //  2. Town's RoleAgents[role] - if set, look up that agent
-//  3. Fall back to ResolveAgentConfig (rig's Agent → town's DefaultAgent → "claude")
+//  3. Fall back to ResolveAgentConfig (rig's Agent → town's DefaultAgent → "codex")
 //
 // If a configured agent is not found or its binary doesn't exist, a warning is
 // printed to stderr and it falls back to the default agent.
@@ -1087,7 +1087,7 @@ func ResolveRoleAgentConfig(role, townRoot, rigPath string) *RuntimeConfig {
 		}
 	}
 
-	// Fall back to existing resolution (rig's Agent → town's DefaultAgent → "claude")
+	// Fall back to existing resolution (rig's Agent → town's DefaultAgent → "codex")
 	return ResolveAgentConfig(townRoot, rigPath)
 }
 
@@ -1132,7 +1132,7 @@ func ResolveRoleAgentName(role, townRoot, rigPath string) (agentName string, isR
 	if townSettings.DefaultAgent != "" {
 		return townSettings.DefaultAgent, false
 	}
-	return "claude", false
+	return "codex", false
 }
 
 // lookupAgentConfig looks up an agent by name.
@@ -1157,7 +1157,7 @@ func lookupAgentConfig(name string, townSettings *TownSettings, rigSettings *Rig
 		return RuntimeConfigFromPreset(AgentPreset(name))
 	}
 
-	// Fallback to claude defaults
+	// Fallback to codex defaults
 	return DefaultRuntimeConfig()
 }
 
@@ -1184,8 +1184,8 @@ func lookupCustomAgentConfig(name string, townSettings *TownSettings, rigSetting
 // It creates a deep copy to prevent mutation of the original config.
 //
 // Default behavior:
-//   - Command defaults to "claude" if empty
-//   - Args defaults to ["--dangerously-skip-permissions"] if nil
+//   - Command defaults to "codex" if empty
+//   - Args defaults to ["--yolo"] if nil
 //   - Empty Args slice ([]string{}) means "no args" and is preserved as-is
 //
 // All fields are deep-copied: modifying the returned config will not affect
@@ -1253,10 +1253,10 @@ func fillRuntimeDefaults(rc *RuntimeConfig) *RuntimeConfig {
 
 	// Apply defaults for required fields
 	if result.Command == "" {
-		result.Command = "claude"
+		result.Command = "codex"
 	}
 	if result.Args == nil {
-		result.Args = []string{"--dangerously-skip-permissions"}
+		result.Args = []string{"--yolo"}
 	}
 
 	// Auto-fill Hooks defaults based on command for agents that support hooks.
@@ -1539,7 +1539,7 @@ func PrependEnv(command string, envVars map[string]string) string {
 // Resolution priority:
 //  1. agentOverride (explicit override)
 //  2. role_agents[GT_ROLE] (if GT_ROLE is in envVars)
-//  3. Default agent resolution (rig's Agent → town's DefaultAgent → "claude")
+//  3. Default agent resolution (rig's Agent → town's DefaultAgent → "codex")
 func BuildStartupCommandWithAgentOverride(envVars map[string]string, rigPath, prompt, agentOverride string) (string, error) {
 	var rc *RuntimeConfig
 	var townRoot string
@@ -1726,13 +1726,16 @@ func BuildCrewStartupCommandWithAgentOverride(rigName, crewName, rigPath, prompt
 
 // ExpectedPaneCommands returns tmux pane command names that indicate the runtime is running.
 // Claude can report as "node" (older versions) or "claude" (newer versions).
-// Other runtimes typically report their executable name.
+// Codex reports as "codex". Other runtimes typically report their executable name.
 func ExpectedPaneCommands(rc *RuntimeConfig) []string {
 	if rc == nil || rc.Command == "" {
 		return nil
 	}
 	if filepath.Base(rc.Command) == "claude" {
 		return []string{"node", "claude"}
+	}
+	if filepath.Base(rc.Command) == "codex" {
+		return []string{"codex"}
 	}
 	return []string{filepath.Base(rc.Command)}
 }

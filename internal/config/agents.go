@@ -339,9 +339,9 @@ func ListAgentPresets() []string {
 	return names
 }
 
-// DefaultAgentPreset returns the default agent preset (Claude).
+// DefaultAgentPreset returns the default agent preset (Codex).
 func DefaultAgentPreset() AgentPreset {
-	return AgentClaude
+	return AgentCodex
 }
 
 // RuntimeConfigFromPreset creates a RuntimeConfig from an agent preset.
@@ -427,12 +427,12 @@ func GetSessionIDEnvVar(agentName string) string {
 
 // GetProcessNames returns the process names used to detect if an agent is running.
 // Used by tmux.IsAgentRunning to check pane_current_command.
-// Returns ["node"] for Claude (default) if agent is not found or has no ProcessNames.
+// Returns ["node"] for Codex (default) if agent is not found or has no ProcessNames.
 func GetProcessNames(agentName string) []string {
 	info := GetAgentPresetByName(agentName)
 	if info == nil || len(info.ProcessNames) == 0 {
-		// Default to Claude's process names for backwards compatibility
-		return []string{"node", "claude"}
+		// Default to Codex's process names for backwards compatibility
+		return []string{"codex"}
 	}
 	return info.ProcessNames
 }

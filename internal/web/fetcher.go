@@ -1486,7 +1486,7 @@ func (f *LiveConvoyFetcher) FetchMayor() (*MayorStatus, error) {
 
 	// Try to detect runtime from mayor config or session
 	if status.IsAttached {
-		status.Runtime = "claude" // Default; could enhance to detect actual runtime
+		status.Runtime = "codex" // Default; could enhance to detect actual runtime
 	}
 
 	return status, nil
