@@ -104,7 +104,26 @@ Don't be dogmatic. Fix things yourself when:
 - Slinging would take longer than fixing
 - You're building understanding you need for coordination
 
-Work directly in `<rig>/mayor/rig/` — that's your clone. Push to main when done.
+Work directly in `<rig>/mayor/rig/` — that's your clone.
+
+### Branching Rules (CRITICAL)
+
+**NEVER push directly to main.** All code changes — even quick fixes — go on a feature branch:
+
+```bash
+git checkout -b feature/<short-description>   # Create branch
+# ... make changes, commit ...
+git push -u origin feature/<short-description> # Push branch
+gh pr create --title "..." --body "..."        # Create PR
+```
+
+**Why:** Pushing to main triggers deployments immediately. Untested code on main breaks production.
+
+**For multi-step work:** Break into beads, sling to polecats. Polecats use feature branches
+and submit to the Refinery merge queue via `{{ cmd }} done`. You coordinate, not implement.
+
+**The only exception:** Emergency one-line hotfixes where deployment speed is critical AND
+the human explicitly approves pushing to main.
 
 ### Directory Guidelines
 
@@ -319,7 +338,8 @@ cross-session continuity when work doesn't fit neatly into a bead.
 [ ] git status              (check what changed)
 [ ] git add <files>         (stage code changes)
 [ ] git commit -m "..."     (commit code)
-[ ] git push                (push to remote)
+[ ] git push                (push feature branch — NEVER push to main directly)
+[ ] gh pr create            (create PR if not already open)
 [ ] HANDOFF (if incomplete work):
     gt mail send mayor/ -s "🤝 HANDOFF: <brief>" -m "<context>"
 ```
