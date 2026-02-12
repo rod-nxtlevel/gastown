@@ -88,6 +88,8 @@ var AllowedCommands = map[string]CommandMeta{
 	"unsling":     {Confirm: true, Desc: "Unassign work from agent", Category: "Work", Args: "<bead>", ArgType: "hooks"},
 	"hook attach": {Confirm: true, Desc: "Attach hook", Category: "Hooks", Args: "<bead>", ArgType: "hooks"},
 	"hook detach": {Confirm: true, Desc: "Detach hook", Category: "Hooks", Args: "<bead>", ArgType: "hooks"},
+	"hook clear":  {Confirm: true, Desc: "Clear agent hook", Category: "Hooks", Args: "<agent>", ArgType: "agents"},
+	"hook show":   {Safe: true, Desc: "Show hook status", Category: "Hooks", Args: "<agent>", ArgType: "agents"},
 
 	// Merge queue read-only
 	"mq list":   {Safe: true, Desc: "Show merge queue", Category: "Merge Queue", Args: "<rig>", ArgType: "rigs"},

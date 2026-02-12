@@ -959,6 +959,74 @@
 
 
     // ============================================
+    // HOOK MANAGEMENT
+    // ============================================
+
+    // Handle detach/clear button clicks on hook rows
+    document.addEventListener('click', function(e) {
+        var btn = e.target.closest('.hook-action-btn');
+        if (!btn) return;
+        e.preventDefault();
+
+        var beadId = btn.getAttribute('data-hook-id');
+        var agent = btn.getAttribute('data-hook-agent');
+        if (!beadId) return;
+
+        var action, cmd, confirmMsg;
+        if (btn.classList.contains('hook-detach-btn')) {
+            action = 'detach';
+            cmd = 'hook detach ' + beadId;
+            confirmMsg = 'Detach hook ' + beadId + '?';
+        } else if (btn.classList.contains('hook-clear-btn')) {
+            action = 'clear';
+            cmd = 'hook clear ' + (agent || beadId);
+            confirmMsg = 'Clear hook for ' + (agent || beadId) + '?';
+        }
+        if (!cmd) return;
+
+        if (!confirm(confirmMsg)) return;
+
+        btn.disabled = true;
+        btn.textContent = '...';
+
+        fetch('/api/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command: cmd })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                showToast('success', 'Done', 'gt ' + cmd);
+                // Trigger HTMX refresh
+                var dashboard = document.getElementById('dashboard-main');
+                if (dashboard && typeof htmx !== 'undefined') {
+                    htmx.trigger(dashboard, 'htmx:load');
+                }
+            } else {
+                showToast('error', 'Failed', data.error || 'Unknown error');
+                btn.disabled = false;
+                btn.textContent = action === 'clear' ? 'Clear' : 'Detach';
+            }
+        })
+        .catch(function(err) {
+            showToast('error', 'Error', err.message || 'Request failed');
+            btn.disabled = false;
+            btn.textContent = action === 'clear' ? 'Clear' : 'Detach';
+        });
+    });
+
+    // Open hook attach via command palette pre-filled
+    function openHookAttach() {
+        openPalette();
+        if (searchInput) {
+            searchInput.value = 'hook attach';
+            filterCommands('hook attach');
+        }
+    }
+    window.openHookAttach = openHookAttach;
+
+    // ============================================
     // ISSUE CREATION MODAL
     // ============================================
     function openIssueModal() {

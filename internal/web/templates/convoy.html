@@ -897,6 +897,7 @@
                     <h2>🪝 Hooks</h2>
                     <span class="count{{if .Hooks}} {{end}}">{{len .Hooks}}</span>
                     <button class="collapse-btn" aria-label="Toggle panel">▼</button>
+                    <button class="hook-attach-btn" onclick="openHookAttach()" title="Attach bead to hook">+ Attach</button>
                     <button class="expand-btn">Expand</button>
                 </div>
                 <div class="panel-body">
@@ -908,6 +909,7 @@
                                 <th>Title</th>
                                 <th>Agent</th>
                                 <th>Hooked</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -922,6 +924,10 @@
                                     {{else}}
                                     {{.Age}}
                                     {{end}}
+                                </td>
+                                <td class="hook-actions">
+                                    <button class="hook-action-btn hook-detach-btn" data-hook-id="{{.ID}}" data-hook-agent="{{.Assignee}}" title="Detach this hook">Detach</button>
+                                    <button class="hook-action-btn hook-clear-btn" data-hook-id="{{.ID}}" data-hook-agent="{{.Assignee}}" title="Clear agent hook">Clear</button>
                                 </td>
                             </tr>
                             {{end}}
