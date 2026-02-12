@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -108,6 +109,8 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleReady(w, r)
 	case path == "/mq/action" && r.Method == http.MethodPost:
 		h.handleMQAction(w, r)
+	case path == "/rig/detail" && r.Method == http.MethodGet:
+		h.handleRigDetail(w, r)
 	default:
 		http.Error(w, "Not found", http.StatusNotFound)
 	}
@@ -1886,6 +1889,274 @@ func (h *APIHandler) handleMQAction(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// RigDetailAgent represents an agent in the rig detail view.
+type RigDetailAgent struct {
+	Name       string `json:"name"`
+	Role       string `json:"role"`   // polecat, crew, witness, refinery
+	Status     string `json:"status"` // working, stale, stuck, idle, none
+	Hook       string `json:"hook,omitempty"`
+	HookTitle  string `json:"hook_title,omitempty"`
+	LastActive string `json:"last_active,omitempty"`
+	Session    string `json:"session"` // attached, detached, none
+	IssueID    string `json:"issue_id,omitempty"`
+	IssueTitle string `json:"issue_title,omitempty"`
+}
+
+// RigDetailResponse is the response for /api/rig/detail.
+type RigDetailResponse struct {
+	Name        string           `json:"name"`
+	GitURL      string           `json:"git_url"`
+	Agents      []RigDetailAgent `json:"agents"`
+	Hooks       []HookRow        `json:"hooks"`
+	Issues      []IssueRow       `json:"issues"`
+	MergeQueue  []MergeQueueRow  `json:"merge_queue"`
+	AgentCounts struct {
+		Polecats int `json:"polecats"`
+		Crew     int `json:"crew"`
+		Witness  int `json:"witness"`
+		Refinery int `json:"refinery"`
+		Total    int `json:"total"`
+	} `json:"agent_counts"`
+	Health struct {
+		WorkingAgents int `json:"working_agents"`
+		StaleAgents   int `json:"stale_agents"`
+		StuckAgents   int `json:"stuck_agents"`
+		IdleAgents    int `json:"idle_agents"`
+	} `json:"health"`
+}
+
+// handleRigDetail returns detailed information for a specific rig.
+func (h *APIHandler) handleRigDetail(w http.ResponseWriter, r *http.Request) {
+	rigName := r.URL.Query().Get("name")
+	if rigName == "" {
+		h.sendError(w, "Missing rig name", http.StatusBadRequest)
+		return
+	}
+	if !isValidRigName(rigName) {
+		h.sendError(w, "Invalid rig name format", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	resp := RigDetailResponse{
+		Name:   rigName,
+		Agents: make([]RigDetailAgent, 0),
+		Hooks:  make([]HookRow, 0),
+		Issues: make([]IssueRow, 0),
+	}
+
+	// Determine town root from working directory
+	townRoot := filepath.Dir(filepath.Dir(h.workDir))
+	// If workDir looks like it's inside the town, use it; otherwise try parent detection
+	if _, err := os.Stat(filepath.Join(townRoot, "mayor")); err != nil {
+		// Try workDir itself
+		townRoot = h.workDir
+		if _, err := os.Stat(filepath.Join(townRoot, "mayor")); err != nil {
+			// Try one level up
+			townRoot = filepath.Dir(h.workDir)
+		}
+	}
+
+	rigPath := filepath.Join(townRoot, rigName)
+
+	// Get git URL from rigs.json
+	rigsConfigPath := filepath.Join(townRoot, "mayor", "rigs.json")
+	if output, err := os.ReadFile(rigsConfigPath); err == nil {
+		var rigsData map[string]interface{}
+		if err := json.Unmarshal(output, &rigsData); err == nil {
+			if rigs, ok := rigsData["rigs"].(map[string]interface{}); ok {
+				if rig, ok := rigs[rigName].(map[string]interface{}); ok {
+					if url, ok := rig["git_url"].(string); ok {
+						resp.GitURL = url
+					}
+				}
+			}
+		}
+	}
+
+	// Collect agents: polecats
+	polecatsDir := filepath.Join(rigPath, "polecats")
+	if entries, err := os.ReadDir(polecatsDir); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+				continue
+			}
+			resp.AgentCounts.Polecats++
+			agent := RigDetailAgent{
+				Name: e.Name(),
+				Role: "polecat",
+			}
+			// Check session status
+			sessionName := fmt.Sprintf("gt-%s-%s", rigName, e.Name())
+			state, lastActive, sessionStatus := h.detectAgentSession(ctx, sessionName)
+			agent.Status = state
+			agent.LastActive = lastActive
+			agent.Session = sessionStatus
+			resp.Agents = append(resp.Agents, agent)
+		}
+	}
+
+	// Collect agents: crew
+	crewDir := filepath.Join(rigPath, "crew")
+	if entries, err := os.ReadDir(crewDir); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+				continue
+			}
+			resp.AgentCounts.Crew++
+			agent := RigDetailAgent{
+				Name: e.Name(),
+				Role: "crew",
+			}
+			sessionName := fmt.Sprintf("gt-%s-crew-%s", rigName, e.Name())
+			state, lastActive, sessionStatus := h.detectAgentSession(ctx, sessionName)
+			agent.Status = state
+			agent.LastActive = lastActive
+			agent.Session = sessionStatus
+			resp.Agents = append(resp.Agents, agent)
+		}
+	}
+
+	// Check witness
+	witnessPath := filepath.Join(rigPath, "witness")
+	if _, err := os.Stat(witnessPath); err == nil {
+		resp.AgentCounts.Witness = 1
+		agent := RigDetailAgent{
+			Name: "witness",
+			Role: "witness",
+		}
+		sessionName := fmt.Sprintf("gt-%s-witness", rigName)
+		state, lastActive, sessionStatus := h.detectAgentSession(ctx, sessionName)
+		agent.Status = state
+		agent.LastActive = lastActive
+		agent.Session = sessionStatus
+		resp.Agents = append(resp.Agents, agent)
+	}
+
+	// Check refinery
+	refineryPath := filepath.Join(rigPath, "refinery", "rig")
+	if _, err := os.Stat(refineryPath); err == nil {
+		resp.AgentCounts.Refinery = 1
+		agent := RigDetailAgent{
+			Name: "refinery",
+			Role: "refinery",
+		}
+		sessionName := fmt.Sprintf("gt-%s-refinery", rigName)
+		state, lastActive, sessionStatus := h.detectAgentSession(ctx, sessionName)
+		agent.Status = state
+		agent.LastActive = lastActive
+		agent.Session = sessionStatus
+		resp.Agents = append(resp.Agents, agent)
+	}
+
+	resp.AgentCounts.Total = resp.AgentCounts.Polecats + resp.AgentCounts.Crew +
+		resp.AgentCounts.Witness + resp.AgentCounts.Refinery
+
+	// Enrich agents with hook data
+	if output, err := h.runGtCommand(ctx, 5*time.Second, []string{"hooks", "list"}); err == nil {
+		lines := strings.Split(output, "\n")
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" || !strings.Contains(trimmed, rigName+"/") {
+				continue
+			}
+			// Parse hook lines: BEAD_ID  AGENT_ADDRESS  TITLE
+			fields := strings.Fields(trimmed)
+			if len(fields) >= 2 {
+				beadID := fields[0]
+				agentAddr := fields[1]
+				title := ""
+				if len(fields) >= 3 {
+					title = strings.Join(fields[2:], " ")
+				}
+				// Match agent address to our agents
+				for i := range resp.Agents {
+					agentPath := rigName + "/polecats/" + resp.Agents[i].Name
+					crewPath := rigName + "/crew/" + resp.Agents[i].Name
+					witnessPath := rigName + "/witness"
+					if strings.Contains(agentAddr, agentPath) ||
+						strings.Contains(agentAddr, crewPath) ||
+						(resp.Agents[i].Role == "witness" && strings.Contains(agentAddr, witnessPath)) {
+						resp.Agents[i].Hook = beadID
+						resp.Agents[i].HookTitle = title
+					}
+				}
+				// Also add to hooks list
+				resp.Hooks = append(resp.Hooks, HookRow{
+					ID:       beadID,
+					Assignee: agentAddr,
+					Title:    title,
+				})
+			}
+		}
+	}
+
+	// Compute health metrics
+	for _, agent := range resp.Agents {
+		switch agent.Status {
+		case "working":
+			resp.Health.WorkingAgents++
+		case "stale":
+			resp.Health.StaleAgents++
+		case "stuck":
+			resp.Health.StuckAgents++
+		default:
+			resp.Health.IdleAgents++
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// detectAgentSession checks tmux session status for a given session name.
+// Returns (status, lastActive, sessionStatus).
+func (h *APIHandler) detectAgentSession(ctx context.Context, sessionName string) (string, string, string) {
+	cmd := exec.CommandContext(ctx, "tmux", "list-sessions", "-F", "#{session_name}|#{window_activity}|#{session_attached}")
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		return "none", "", "none"
+	}
+
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	for _, line := range lines {
+		parts := strings.Split(line, "|")
+		if len(parts) < 3 || parts[0] != sessionName {
+			continue
+		}
+
+		var activityUnix int64
+		if _, err := fmt.Sscanf(parts[1], "%d", &activityUnix); err != nil {
+			continue
+		}
+		attached := parts[2] == "1"
+		sessionStatus := "detached"
+		if attached {
+			sessionStatus = "attached"
+		}
+
+		activityAge := time.Since(time.Unix(activityUnix, 0))
+		lastActive := formatCrewActivityAge(activityAge)
+
+		// Determine status based on activity age
+		switch {
+		case activityAge < 2*time.Minute:
+			return "working", lastActive, sessionStatus
+		case activityAge < 5*time.Minute:
+			return "working", lastActive, sessionStatus
+		case activityAge < 30*time.Minute:
+			return "stale", lastActive, sessionStatus
+		default:
+			return "stuck", lastActive, sessionStatus
+		}
+	}
+
+	return "none", "", "none"
 }
 
 // parseCommandArgs splits a command string into args, respecting quotes.

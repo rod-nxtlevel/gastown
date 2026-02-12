@@ -635,7 +635,7 @@
             <!-- Row 3: Rigs, Dogs, Health -->
 
             <!-- Rigs Panel -->
-            <div class="panel">
+            <div class="panel" id="rigs-panel">
                 <div class="panel-header">
                     <h2>🏗️ Rigs</h2>
                     <span class="count">{{len .Rigs}}</span>
@@ -643,35 +643,72 @@
                     <button class="expand-btn">Expand</button>
                 </div>
                 <div class="panel-body">
-                    {{if .Rigs}}
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Polecats</th>
-                                <th>Crew</th>
-                                <th>Agents</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {{range .Rigs}}
-                            <tr>
-                                <td><span class="rig-name">{{.Name}}</span></td>
-                                <td>{{.PolecatCount}}</td>
-                                <td>{{.CrewCount}}</td>
-                                <td class="agent-icons">
-                                    <span class="agent-icon{{if .HasWitness}} active{{end}}" title="Witness">👁</span>
-                                    <span class="agent-icon{{if .HasRefinery}} active{{end}}" title="Refinery">⚗️</span>
-                                </td>
-                            </tr>
-                            {{end}}
-                        </tbody>
-                    </table>
-                    {{else}}
-                    <div class="empty-state">
-                        <p>No rigs configured</p>
+                    <!-- Rig List View -->
+                    <div id="rig-list">
+                        {{if .Rigs}}
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Polecats</th>
+                                    <th>Crew</th>
+                                    <th>Agents</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {{range .Rigs}}
+                                <tr class="rig-row" data-rig-name="{{.Name}}">
+                                    <td><span class="rig-name">{{.Name}}</span></td>
+                                    <td>{{.PolecatCount}}</td>
+                                    <td>{{.CrewCount}}</td>
+                                    <td class="agent-icons">
+                                        <span class="agent-icon{{if .HasWitness}} active{{end}}" title="Witness">👁</span>
+                                        <span class="agent-icon{{if .HasRefinery}} active{{end}}" title="Refinery">⚗️</span>
+                                    </td>
+                                </tr>
+                                {{end}}
+                            </tbody>
+                        </table>
+                        {{else}}
+                        <div class="empty-state">
+                            <p>No rigs configured</p>
+                        </div>
+                        {{end}}
                     </div>
-                    {{end}}
+                    <!-- Rig Detail View (hidden by default) -->
+                    <div id="rig-detail" style="display: none;">
+                        <div class="detail-header">
+                            <button id="rig-back-btn" class="btn-back">← Back</button>
+                        </div>
+                        <div class="rig-detail-content">
+                            <div class="rig-detail-title">
+                                <span class="rig-name" id="rig-detail-name"></span>
+                                <span class="rig-detail-url" id="rig-detail-url"></span>
+                            </div>
+                            <div class="rig-detail-stats" id="rig-detail-stats"></div>
+                            <div class="rig-detail-health" id="rig-detail-health"></div>
+                            <div class="rig-detail-section">
+                                <h4>Agents</h4>
+                                <table id="rig-detail-agents-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Name</th>
+                                            <th>Role</th>
+                                            <th>Status</th>
+                                            <th>Hook</th>
+                                            <th>Activity</th>
+                                            <th>Session</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="rig-detail-agents"></tbody>
+                                </table>
+                            </div>
+                            <div class="rig-detail-section" id="rig-detail-hooks-section" style="display: none;">
+                                <h4>Hooks</h4>
+                                <div id="rig-detail-hooks"></div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 

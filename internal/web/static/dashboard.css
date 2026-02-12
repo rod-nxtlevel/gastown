@@ -3150,6 +3150,115 @@
             border-color: var(--red) !important;
         }
 
+        /* Rig detail styles */
+        .rig-row {
+            cursor: pointer;
+        }
+
+        .rig-detail-content {
+            padding: 12px;
+        }
+
+        .rig-detail-title {
+            display: flex;
+            align-items: baseline;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .rig-detail-title .rig-name {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--cyan);
+        }
+
+        .rig-detail-url {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .rig-detail-stats {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+
+        .rig-stat {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 6px 12px;
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            min-width: 60px;
+        }
+
+        .rig-stat-total {
+            border-color: var(--border-accent);
+        }
+
+        .rig-stat-value {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .rig-stat-label {
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+
+        .rig-detail-health {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+
+        .rig-health-item {
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+
+        .rig-health-green {
+            background: rgba(194, 217, 76, 0.15);
+            color: var(--green);
+        }
+
+        .rig-health-yellow {
+            background: rgba(255, 180, 84, 0.15);
+            color: var(--yellow);
+        }
+
+        .rig-health-red {
+            background: rgba(240, 113, 120, 0.15);
+            color: var(--red);
+        }
+
+        .rig-health-muted {
+            background: var(--border);
+            color: var(--text-secondary);
+        }
+
+        .rig-detail-section {
+            margin-top: 12px;
+        }
+
+        .rig-detail-section h4 {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 8px;
+            padding-bottom: 4px;
+            border-bottom: 1px solid var(--border);
+        }
+
         @keyframes slideIn {
             from { transform: translateX(100%); opacity: 0; }
             to { transform: translateX(0); opacity: 1; }
