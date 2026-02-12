@@ -1385,7 +1385,16 @@
 
         /* Responsive - adapt to different screen sizes */
 
-        /* Medium screens */
+        /* Collapsible panel support (toggled via JS on mobile) */
+        .panel.collapsed .panel-body {
+            display: none;
+        }
+
+        .panel-header .collapse-indicator {
+            display: none;
+        }
+
+        /* Medium screens (tablet landscape) */
         @media (max-width: 900px) {
             .summary-stats {
                 gap: 16px;
@@ -1405,6 +1414,128 @@
 
             th, td {
                 padding: 6px 8px;
+            }
+
+            /* Touch-friendly tap targets */
+            .badge {
+                padding: 4px 8px;
+                font-size: 0.7rem;
+            }
+
+            .tab-btn {
+                padding: 8px 14px;
+                min-height: 36px;
+            }
+
+            .expand-btn {
+                padding: 6px 12px;
+                min-height: 36px;
+            }
+
+            .new-issue-btn {
+                padding: 6px 12px;
+                min-height: 36px;
+            }
+
+            .mail-tab {
+                padding: 6px 10px;
+                min-height: 36px;
+            }
+        }
+
+        /* Small tablet / large phone (portrait) */
+        @media (max-width: 768px) {
+            .panels {
+                grid-template-columns: 1fr;
+            }
+
+            .panel-full {
+                grid-column: auto;
+            }
+
+            .summary-banner {
+                flex-direction: column;
+                gap: 12px;
+            }
+
+            .summary-stats {
+                flex-wrap: wrap;
+                justify-content: center;
+                gap: 12px;
+            }
+
+            .summary-alerts {
+                justify-content: center;
+            }
+
+            .mayor-banner {
+                flex-direction: column;
+                gap: 12px;
+                text-align: center;
+            }
+
+            .mayor-status {
+                justify-content: center;
+            }
+
+            /* Show collapse indicator on panels */
+            .panel-header .collapse-indicator {
+                display: inline-block;
+                font-size: 0.7rem;
+                color: var(--text-muted);
+                margin-left: 8px;
+                transition: transform 0.2s ease;
+            }
+
+            .panel.collapsed .panel-header .collapse-indicator {
+                transform: rotate(-90deg);
+            }
+
+            .panel-header {
+                cursor: pointer;
+                -webkit-tap-highlight-color: transparent;
+                min-height: 44px;
+            }
+
+            /* Touch-friendly table rows */
+            tr {
+                min-height: 44px;
+            }
+
+            th, td {
+                padding: 8px 10px;
+            }
+
+            /* Touch-friendly buttons */
+            .attach-btn,
+            .new-issue-btn,
+            .compose-btn,
+            .cmd-btn,
+            .expand-btn,
+            .tab-btn,
+            .mail-tab {
+                min-height: 44px;
+                min-width: 44px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            /* Prevent text overflow on smaller screens */
+            .convoy-title,
+            .polecat-work,
+            .status-hint,
+            .crew-hook,
+            .rig-url {
+                max-width: 140px;
+            }
+
+            .pr-title,
+            .issue-title,
+            .mail-subject,
+            .hook-title,
+            .ready-title {
+                max-width: 160px;
             }
         }
 
@@ -1472,14 +1603,16 @@
             text-overflow: unset;
         }
 
-        /* Small screens (< 600px) */
+        /* Small screens (< 600px) - phone */
         @media (max-width: 600px) {
             body {
                 padding: 8px;
+                font-size: 12px;
             }
 
             .panels {
                 grid-template-columns: 1fr;
+                gap: 10px;
             }
 
             header {
@@ -1489,35 +1622,14 @@
             }
 
             .ascii-title {
-                font-size: 6px;
                 display: none; /* Hide on mobile, too wide */
             }
 
-            .mayor-banner {
-                flex-direction: column;
-                gap: 12px;
-                text-align: center;
+            h1 {
+                font-size: 1rem;
             }
 
-            .mayor-status {
-                justify-content: center;
-            }
-
-            .summary-banner {
-                flex-direction: column;
-                gap: 12px;
-            }
-
-            .summary-stats {
-                flex-wrap: wrap;
-                justify-content: center;
-                gap: 10px;
-            }
-
-            .summary-alerts {
-                justify-content: center;
-            }
-
+            /* Summary banner compact layout */
             .stat-value {
                 font-size: 1.1rem;
             }
@@ -1529,6 +1641,135 @@
             .alert-item {
                 font-size: 0.7rem;
                 padding: 3px 8px;
+            }
+
+            .summary-banner {
+                padding: 10px 14px;
+            }
+
+            .mayor-banner {
+                padding: 10px 14px;
+            }
+
+            /* Panel body height - taller on mobile for scroll comfort */
+            .panel-body {
+                max-height: 220px;
+            }
+
+            /* Table: hide low-priority columns */
+            table {
+                font-size: 0.7rem;
+            }
+
+            th, td {
+                padding: 8px 6px;
+            }
+
+            /* Touch-friendly panel headers */
+            .panel-header {
+                padding: 12px 14px;
+                min-height: 48px;
+            }
+
+            .panel-header h2 {
+                font-size: 0.8rem;
+            }
+
+            /* Ensure expand button doesn't interfere with collapse tap */
+            .expand-btn {
+                padding: 8px 12px;
+                font-size: 0.75rem;
+            }
+
+            /* Modal full-screen on mobile */
+            .modal-content {
+                width: 100%;
+                max-width: 100%;
+                max-height: 100vh;
+                border-radius: 0;
+                margin: 0;
+            }
+
+            /* Command palette full-width */
+            .command-palette {
+                width: 100%;
+                max-width: 100%;
+                border-radius: 0;
+                max-height: 100vh;
+            }
+
+            .command-palette-input {
+                padding: 16px;
+                font-size: 1rem;
+            }
+
+            .command-item {
+                padding: 12px 16px;
+                min-height: 48px;
+            }
+
+            /* Output panel taller on mobile */
+            .output-panel {
+                max-height: 70vh;
+            }
+
+            /* Toast position: bottom center on mobile */
+            .toast-container,
+            #toast-container {
+                top: auto;
+                bottom: 10px;
+                right: 10px;
+                left: 10px;
+            }
+
+            .toast {
+                min-width: auto;
+            }
+
+            /* Truncate more aggressively on phone */
+            .pr-title,
+            .issue-title,
+            .mail-subject,
+            .hook-title,
+            .ready-title {
+                max-width: 120px;
+            }
+
+            .convoy-title,
+            .polecat-work,
+            .status-hint,
+            .crew-hook,
+            .rig-url {
+                max-width: 100px;
+            }
+
+            /* Health grid single column on phone */
+            .health-grid {
+                grid-template-columns: 1fr;
+                gap: 8px;
+                padding: 8px;
+            }
+
+            /* Mail detail full-width comfort */
+            .mail-detail-body {
+                font-size: 0.85rem;
+                padding: 10px;
+            }
+
+            /* Issue detail comfort */
+            #issue-detail-description {
+                font-size: 0.8rem;
+                padding: 10px;
+            }
+
+            .issue-detail-meta {
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+
+            .pr-detail-meta {
+                flex-wrap: wrap;
+                gap: 8px;
             }
         }
 

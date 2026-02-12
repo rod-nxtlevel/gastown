@@ -30,6 +30,48 @@
         }
     });
 
+    // ============================================
+    // COLLAPSIBLE PANELS (mobile/tablet)
+    // ============================================
+    function isMobileView() {
+        return window.matchMedia('(max-width: 768px)').matches;
+    }
+
+    // Add collapse indicators to panel headers on load
+    function initCollapseIndicators() {
+        document.querySelectorAll('.panel-header').forEach(function(header) {
+            if (!header.querySelector('.collapse-indicator')) {
+                var indicator = document.createElement('span');
+                indicator.className = 'collapse-indicator';
+                indicator.textContent = '▼';
+                indicator.setAttribute('aria-hidden', 'true');
+                // Insert before expand button if it exists, otherwise append
+                var expandBtn = header.querySelector('.expand-btn');
+                if (expandBtn) {
+                    header.insertBefore(indicator, expandBtn);
+                } else {
+                    header.appendChild(indicator);
+                }
+            }
+        });
+    }
+
+    initCollapseIndicators();
+
+    document.addEventListener('click', function(e) {
+        if (!isMobileView()) return;
+
+        var header = e.target.closest('.panel-header');
+        if (!header) return;
+        // Don't collapse if clicking expand button
+        if (e.target.closest('.expand-btn')) return;
+
+        var panel = header.closest('.panel');
+        if (!panel) return;
+
+        panel.classList.toggle('collapsed');
+    });
+
     // After HTMX swap - morph preserves most state, but we need to re-init some things
     document.body.addEventListener('htmx:afterSwap', function() {
         // Morph preserves expanded class, so we don't need to close panels anymore
@@ -46,6 +88,8 @@
         if (!inDetailView && !hasExpanded) {
             window.pauseRefresh = false;
         }
+        // Re-init collapse indicators after morph
+        initCollapseIndicators();
         // Reload dynamic panels after swap (handled via window functions)
         if (window.refreshCrewPanel) window.refreshCrewPanel();
         if (window.refreshReadyPanel) window.refreshReadyPanel();
