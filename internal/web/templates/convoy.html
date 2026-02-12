@@ -454,6 +454,7 @@
                                     <th>Title</th>
                                     <th>CI</th>
                                     <th>Merge</th>
+                                    <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -471,6 +472,11 @@
                                         {{if eq .Mergeable "ready"}}<span class="badge badge-green">Ready</span>
                                         {{else if eq .Mergeable "conflict"}}<span class="badge badge-red">Conflict</span>
                                         {{else}}<span class="badge badge-muted">Pending</span>{{end}}
+                                    </td>
+                                    <td class="mq-actions" onclick="event.stopPropagation()">
+                                        <button class="mq-action-btn mq-approve-btn" data-pr-url="{{.URL}}" data-pr-repo="{{.Repo}}" data-pr-number="{{.Number}}" title="Approve PR">✓</button>
+                                        <button class="mq-action-btn mq-reject-btn" data-pr-url="{{.URL}}" data-pr-repo="{{.Repo}}" data-pr-number="{{.Number}}" title="Close PR">✕</button>
+                                        <button class="mq-action-btn mq-retry-btn" data-pr-url="{{.URL}}" data-pr-repo="{{.Repo}}" data-pr-number="{{.Number}}" title="Retry checks">↻</button>
                                     </td>
                                 </tr>
                                 {{end}}
@@ -515,6 +521,11 @@
                             <div id="pr-detail-checks-section" class="pr-detail-section" style="display: none;">
                                 <h4>Checks</h4>
                                 <div id="pr-detail-checks"></div>
+                            </div>
+                            <div class="pr-detail-actions">
+                                <button id="pr-action-approve" class="mq-detail-btn mq-detail-approve">✓ Approve</button>
+                                <button id="pr-action-reject" class="mq-detail-btn mq-detail-reject">✕ Close</button>
+                                <button id="pr-action-retry" class="mq-detail-btn mq-detail-retry">↻ Retry</button>
                             </div>
                         </div>
                     </div>

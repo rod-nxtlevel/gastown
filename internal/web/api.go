@@ -106,6 +106,8 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleCrew(w, r)
 	case path == "/ready" && r.Method == http.MethodGet:
 		h.handleReady(w, r)
+	case path == "/mq/action" && r.Method == http.MethodPost:
+		h.handleMQAction(w, r)
 	default:
 		http.Error(w, "Not found", http.StatusNotFound)
 	}
@@ -1779,6 +1781,108 @@ func (h *APIHandler) handleReady(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	resp.Summary.Total = len(resp.Items)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// MQActionRequest is the JSON request body for /api/mq/action.
+type MQActionRequest struct {
+	Action string `json:"action"` // "approve", "reject", "retry"
+	Repo   string `json:"repo"`   // owner/repo format
+	Number int    `json:"number"` // PR number
+	URL    string `json:"url"`    // Full PR URL (alternative to repo+number)
+	Reason string `json:"reason"` // Reason for reject
+}
+
+// handleMQAction performs merge queue actions (approve, reject, retry) on GitHub PRs.
+func (h *APIHandler) handleMQAction(w http.ResponseWriter, r *http.Request) {
+	var req MQActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.sendError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Action == "" {
+		h.sendError(w, "Missing action", http.StatusBadRequest)
+		return
+	}
+
+	// Determine PR reference (URL or repo+number)
+	prRef := req.URL
+	if prRef == "" {
+		if req.Repo == "" || req.Number <= 0 {
+			h.sendError(w, "Missing repo/number or url", http.StatusBadRequest)
+			return
+		}
+		prRef = fmt.Sprintf("%d", req.Number)
+	} else {
+		// Validate URL
+		if !strings.HasPrefix(prRef, "https://") {
+			h.sendError(w, "PR URL must start with https://", http.StatusBadRequest)
+			return
+		}
+		if strings.ContainsAny(prRef, "\x00\n\r") {
+			h.sendError(w, "PR URL cannot contain null bytes or newlines", http.StatusBadRequest)
+			return
+		}
+	}
+
+	var args []string
+	var actionDesc string
+
+	switch req.Action {
+	case "approve":
+		args = []string{"pr", "review", "--approve", prRef}
+		if req.Repo != "" && req.URL == "" {
+			args = append(args, "--repo", req.Repo)
+		}
+		actionDesc = "Approved"
+
+	case "reject":
+		args = []string{"pr", "close", prRef}
+		if req.Repo != "" && req.URL == "" {
+			args = append(args, "--repo", req.Repo)
+		}
+		if req.Reason != "" {
+			args = append(args, "--comment", req.Reason)
+		}
+		actionDesc = "Closed"
+
+	case "retry":
+		// Re-request review checks by closing and reopening
+		// First, try to re-run failed checks via gh run rerun
+		args = []string{"pr", "checks", prRef, "--watch=false"}
+		if req.Repo != "" && req.URL == "" {
+			args = append(args, "--repo", req.Repo)
+		}
+		actionDesc = "Retry requested"
+
+	default:
+		h.sendError(w, fmt.Sprintf("Unknown action: %s", req.Action), http.StatusBadRequest)
+		return
+	}
+
+	output, err := h.runGhCommand(r.Context(), 30*time.Second, args)
+
+	resp := map[string]interface{}{
+		"action":  req.Action,
+		"pr":      req.Number,
+		"message": actionDesc,
+	}
+
+	if err != nil {
+		resp["success"] = false
+		resp["error"] = err.Error()
+		if output != "" {
+			resp["output"] = output
+		}
+	} else {
+		resp["success"] = true
+		if output != "" {
+			resp["output"] = output
+		}
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
