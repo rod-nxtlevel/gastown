@@ -97,6 +97,12 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleIssueShow(w, r)
 	case path == "/issues/create" && r.Method == http.MethodPost:
 		h.handleIssueCreate(w, r)
+	case path == "/issues/close" && r.Method == http.MethodPost:
+		h.handleIssueClose(w, r)
+	case path == "/issues/reopen" && r.Method == http.MethodPost:
+		h.handleIssueReopen(w, r)
+	case path == "/issues/update" && r.Method == http.MethodPost:
+		h.handleIssueUpdate(w, r)
 	case path == "/pr/show" && r.Method == http.MethodGet:
 		h.handlePRShow(w, r)
 	case path == "/crew" && r.Method == http.MethodGet:
@@ -769,6 +775,8 @@ type IssueShowResponse struct {
 	Status      string   `json:"status,omitempty"`
 	Priority    string   `json:"priority,omitempty"`
 	Description string   `json:"description,omitempty"`
+	Assignee    string   `json:"assignee,omitempty"`
+	Owner       string   `json:"owner,omitempty"`
 	Created     string   `json:"created,omitempty"`
 	Updated     string   `json:"updated,omitempty"`
 	DependsOn   []string `json:"depends_on,omitempty"`
@@ -933,6 +941,130 @@ func (h *APIHandler) handleIssueCreate(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
+// IssueActionRequest is the request body for close/reopen operations.
+type IssueActionRequest struct {
+	ID string `json:"id"`
+}
+
+// handleIssueClose closes an issue via bd close.
+func (h *APIHandler) handleIssueClose(w http.ResponseWriter, r *http.Request) {
+	var req IssueActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.sendError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.ID == "" {
+		h.sendError(w, "Issue ID is required", http.StatusBadRequest)
+		return
+	}
+	if !isValidID(req.ID) {
+		h.sendError(w, "Invalid issue ID format", http.StatusBadRequest)
+		return
+	}
+
+	output, err := h.runBdCommand(r.Context(), 15*time.Second, []string{"close", req.ID})
+	if err != nil {
+		h.sendError(w, "Failed to close issue: "+err.Error()+"\n"+output, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Issue closed",
+		"output":  output,
+	})
+}
+
+// handleIssueReopen reopens a closed issue via bd update --status=open.
+func (h *APIHandler) handleIssueReopen(w http.ResponseWriter, r *http.Request) {
+	var req IssueActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.sendError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.ID == "" {
+		h.sendError(w, "Issue ID is required", http.StatusBadRequest)
+		return
+	}
+	if !isValidID(req.ID) {
+		h.sendError(w, "Invalid issue ID format", http.StatusBadRequest)
+		return
+	}
+
+	output, err := h.runBdCommand(r.Context(), 15*time.Second, []string{"update", req.ID, "--status=open"})
+	if err != nil {
+		h.sendError(w, "Failed to reopen issue: "+err.Error()+"\n"+output, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Issue reopened",
+		"output":  output,
+	})
+}
+
+// IssueUpdateRequest is the request body for updating issue fields.
+type IssueUpdateRequest struct {
+	ID       string `json:"id"`
+	Priority int    `json:"priority,omitempty"` // 1-4
+	Assignee string `json:"assignee,omitempty"` // agent path e.g. "gastown/polecats/nux"
+}
+
+// handleIssueUpdate updates issue fields via bd update.
+func (h *APIHandler) handleIssueUpdate(w http.ResponseWriter, r *http.Request) {
+	var req IssueUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.sendError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.ID == "" {
+		h.sendError(w, "Issue ID is required", http.StatusBadRequest)
+		return
+	}
+	if !isValidID(req.ID) {
+		h.sendError(w, "Invalid issue ID format", http.StatusBadRequest)
+		return
+	}
+
+	args := []string{"update", req.ID}
+	hasUpdate := false
+
+	if req.Priority >= 1 && req.Priority <= 4 {
+		args = append(args, fmt.Sprintf("--priority=%d", req.Priority))
+		hasUpdate = true
+	}
+
+	if req.Assignee != "" {
+		if !isValidMailAddress(req.Assignee) {
+			h.sendError(w, "Invalid assignee format", http.StatusBadRequest)
+			return
+		}
+		args = append(args, fmt.Sprintf("--assignee=%s", req.Assignee))
+		hasUpdate = true
+	}
+
+	if !hasUpdate {
+		h.sendError(w, "No fields to update (provide priority or assignee)", http.StatusBadRequest)
+		return
+	}
+
+	output, err := h.runBdCommand(r.Context(), 15*time.Second, args)
+	if err != nil {
+		h.sendError(w, "Failed to update issue: "+err.Error()+"\n"+output, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Issue updated",
+		"output":  output,
+	})
+}
+
 // runBdCommand executes a bd command with the given args.
 func (h *APIHandler) runBdCommand(ctx context.Context, timeout time.Duration, args []string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -979,6 +1111,8 @@ func parseIssueShowJSON(output string) (IssueShowResponse, bool) {
 		Status      string   `json:"status"`
 		Priority    int      `json:"priority"`
 		Type        string   `json:"issue_type"`
+		Assignee    string   `json:"assignee"`
+		Owner       string   `json:"owner"`
 		CreatedAt   string   `json:"created_at"`
 		UpdatedAt   string   `json:"updated_at"`
 		DependsOn   []string `json:"depends_on,omitempty"`
@@ -1001,6 +1135,8 @@ func parseIssueShowJSON(output string) (IssueShowResponse, bool) {
 		Status:      item.Status,
 		Priority:    priority,
 		Description: item.Description,
+		Assignee:    item.Assignee,
+		Owner:       item.Owner,
 		Created:     item.CreatedAt,
 		Updated:     item.UpdatedAt,
 		DependsOn:   item.DependsOn,

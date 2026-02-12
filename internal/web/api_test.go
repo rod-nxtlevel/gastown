@@ -510,6 +510,180 @@ func TestAPIHandler_IssueCreate_InvalidJSON(t *testing.T) {
 	}
 }
 
+// --- Issue management endpoint tests ---
+
+func TestAPIHandler_IssueClose_MissingID(t *testing.T) {
+	handler := NewAPIHandler(30*time.Second, 60*time.Second)
+
+	body := `{"id": ""}`
+	req := httptest.NewRequest(http.MethodPost, "/api/issues/close", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("POST /api/issues/close empty ID status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestAPIHandler_IssueClose_InvalidID(t *testing.T) {
+	handler := NewAPIHandler(30*time.Second, 60*time.Second)
+
+	body := `{"id": "--flag-injection"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/issues/close", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("POST /api/issues/close invalid ID status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestAPIHandler_IssueClose_InvalidJSON(t *testing.T) {
+	handler := NewAPIHandler(30*time.Second, 60*time.Second)
+
+	body := `{not valid json}`
+	req := httptest.NewRequest(http.MethodPost, "/api/issues/close", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("POST /api/issues/close invalid JSON status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestAPIHandler_IssueReopen_MissingID(t *testing.T) {
+	handler := NewAPIHandler(30*time.Second, 60*time.Second)
+
+	body := `{"id": ""}`
+	req := httptest.NewRequest(http.MethodPost, "/api/issues/reopen", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("POST /api/issues/reopen empty ID status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestAPIHandler_IssueReopen_InvalidID(t *testing.T) {
+	handler := NewAPIHandler(30*time.Second, 60*time.Second)
+
+	body := `{"id": "--flag-injection"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/issues/reopen", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("POST /api/issues/reopen invalid ID status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestAPIHandler_IssueUpdate_MissingID(t *testing.T) {
+	handler := NewAPIHandler(30*time.Second, 60*time.Second)
+
+	body := `{"id": "", "priority": 2}`
+	req := httptest.NewRequest(http.MethodPost, "/api/issues/update", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("POST /api/issues/update empty ID status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestAPIHandler_IssueUpdate_InvalidID(t *testing.T) {
+	handler := NewAPIHandler(30*time.Second, 60*time.Second)
+
+	body := `{"id": "--flag-injection", "priority": 2}`
+	req := httptest.NewRequest(http.MethodPost, "/api/issues/update", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("POST /api/issues/update invalid ID status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestAPIHandler_IssueUpdate_NoFields(t *testing.T) {
+	handler := NewAPIHandler(30*time.Second, 60*time.Second)
+
+	body := `{"id": "gt-abc"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/issues/update", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("POST /api/issues/update no fields status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestAPIHandler_IssueUpdate_InvalidAssignee(t *testing.T) {
+	handler := NewAPIHandler(30*time.Second, 60*time.Second)
+
+	body := `{"id": "gt-abc", "assignee": "-flag"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/issues/update", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("POST /api/issues/update invalid assignee status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestAPIHandler_IssueUpdate_InvalidJSON(t *testing.T) {
+	handler := NewAPIHandler(30*time.Second, 60*time.Second)
+
+	body := `{not valid}`
+	req := httptest.NewRequest(http.MethodPost, "/api/issues/update", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("POST /api/issues/update invalid JSON status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestParseIssueShowJSON_WithAssignee(t *testing.T) {
+	input := `[{
+		"id": "gt-abc",
+		"title": "Test issue",
+		"status": "hooked",
+		"priority": 2,
+		"issue_type": "feature",
+		"assignee": "gastown/polecats/nux",
+		"owner": "user@example.com"
+	}]`
+	resp, ok := parseIssueShowJSON(input)
+	if !ok {
+		t.Fatal("parseIssueShowJSON returned ok=false for valid input with assignee")
+	}
+	if resp.Assignee != "gastown/polecats/nux" {
+		t.Errorf("Assignee = %q, want %q", resp.Assignee, "gastown/polecats/nux")
+	}
+	if resp.Owner != "user@example.com" {
+		t.Errorf("Owner = %q, want %q", resp.Owner, "user@example.com")
+	}
+}
+
 // --- parseIssueShowOutput edge-case tests (issue #1228: panic-safe string indexing) ---
 
 func TestParseIssueShowOutput_EmptyOutput(t *testing.T) {

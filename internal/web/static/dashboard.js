@@ -1296,8 +1296,15 @@
         }
     });
 
+    var currentIssueStatus = null;
+    var currentIssuePriority = null;
+    var currentIssueAssignee = null;
+
     function openIssueDetail(issueId) {
         currentIssueId = issueId;
+        currentIssueStatus = null;
+        currentIssuePriority = null;
+        currentIssueAssignee = null;
 
         // Pause HTMX refresh while viewing issue
         window.pauseRefresh = true;
@@ -1310,10 +1317,14 @@
         document.getElementById('issue-detail-status').textContent = '';
         document.getElementById('issue-detail-type').textContent = '';
         document.getElementById('issue-detail-created').textContent = '';
+        document.getElementById('issue-detail-assignee').textContent = '';
         document.getElementById('issue-detail-depends-on').innerHTML = '';
         document.getElementById('issue-detail-blocks').innerHTML = '';
         document.getElementById('issue-detail-deps').style.display = 'none';
         document.getElementById('issue-detail-blocks-section').style.display = 'none';
+        document.getElementById('issue-edit-form').style.display = 'none';
+        document.getElementById('issue-close-btn').style.display = 'none';
+        document.getElementById('issue-reopen-btn').style.display = 'none';
 
         // Show detail view
         issuesList.style.display = 'none';
@@ -1328,6 +1339,10 @@
                     document.getElementById('issue-detail-description').textContent = data.error;
                     return;
                 }
+
+                currentIssueStatus = (data.status || '').toLowerCase();
+                currentIssuePriority = data.priority || '';
+                currentIssueAssignee = data.assignee || '';
 
                 document.getElementById('issue-detail-id').textContent = data.id || issueId;
                 document.getElementById('issue-detail-title-text').textContent = data.title || '(no title)';
@@ -1351,6 +1366,15 @@
                     statusEl.className = 'issue-status ' + data.status.toLowerCase().replace(' ', '_');
                 }
 
+                // Show appropriate close/reopen button
+                if (currentIssueStatus === 'closed') {
+                    document.getElementById('issue-close-btn').style.display = 'none';
+                    document.getElementById('issue-reopen-btn').style.display = '';
+                } else {
+                    document.getElementById('issue-close-btn').style.display = '';
+                    document.getElementById('issue-reopen-btn').style.display = 'none';
+                }
+
                 // Meta info
                 if (data.type) {
                     document.getElementById('issue-detail-type').textContent = 'Type: ' + data.type;
@@ -1358,6 +1382,18 @@
                 if (data.created) {
                     document.getElementById('issue-detail-created').textContent = 'Created: ' + data.created;
                 }
+                if (data.assignee) {
+                    document.getElementById('issue-detail-assignee').textContent = 'Assignee: ' + data.assignee;
+                }
+
+                // Set edit form defaults
+                var priorityNum = 2;
+                if (data.priority) {
+                    var m = data.priority.match(/P(\d)/);
+                    if (m) priorityNum = parseInt(m[1], 10);
+                }
+                document.getElementById('issue-edit-priority').value = priorityNum;
+                document.getElementById('issue-edit-assignee').value = data.assignee || '';
 
                 // Dependencies
                 if (data.depends_on && data.depends_on.length > 0) {
@@ -1382,6 +1418,130 @@
                 document.getElementById('issue-detail-description').textContent = 'Failed to load issue: ' + err.message;
             });
     }
+
+    // Close an issue
+    function closeIssue() {
+        if (!currentIssueId) return;
+        if (!confirm('Close issue ' + currentIssueId + '?')) return;
+
+        var btn = document.getElementById('issue-close-btn');
+        btn.disabled = true;
+        btn.textContent = 'Closing...';
+
+        fetch('/api/issues/close', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: currentIssueId })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                showToast('success', 'Issue closed', currentIssueId + ' has been closed.');
+                // Update the detail view
+                document.getElementById('issue-detail-status').textContent = 'CLOSED';
+                document.getElementById('issue-detail-status').className = 'issue-status closed';
+                btn.style.display = 'none';
+                document.getElementById('issue-reopen-btn').style.display = '';
+                currentIssueStatus = 'closed';
+            } else {
+                showToast('error', 'Failed to close', data.error || 'Unknown error');
+            }
+        })
+        .catch(function(err) {
+            showToast('error', 'Error', 'Failed to close issue: ' + err.message);
+        })
+        .finally(function() {
+            btn.disabled = false;
+            btn.textContent = 'Close Issue';
+        });
+    }
+    window.closeIssue = closeIssue;
+
+    // Reopen an issue
+    function reopenIssue() {
+        if (!currentIssueId) return;
+        if (!confirm('Reopen issue ' + currentIssueId + '?')) return;
+
+        var btn = document.getElementById('issue-reopen-btn');
+        btn.disabled = true;
+        btn.textContent = 'Reopening...';
+
+        fetch('/api/issues/reopen', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: currentIssueId })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                showToast('success', 'Issue reopened', currentIssueId + ' has been reopened.');
+                document.getElementById('issue-detail-status').textContent = 'OPEN';
+                document.getElementById('issue-detail-status').className = 'issue-status open';
+                btn.style.display = 'none';
+                document.getElementById('issue-close-btn').style.display = '';
+                currentIssueStatus = 'open';
+            } else {
+                showToast('error', 'Failed to reopen', data.error || 'Unknown error');
+            }
+        })
+        .catch(function(err) {
+            showToast('error', 'Error', 'Failed to reopen issue: ' + err.message);
+        })
+        .finally(function() {
+            btn.disabled = false;
+            btn.textContent = 'Reopen Issue';
+        });
+    }
+    window.reopenIssue = reopenIssue;
+
+    // Toggle edit form
+    function toggleIssueEdit() {
+        var form = document.getElementById('issue-edit-form');
+        if (form.style.display === 'none') {
+            form.style.display = 'block';
+        } else {
+            form.style.display = 'none';
+        }
+    }
+    window.toggleIssueEdit = toggleIssueEdit;
+
+    // Save issue edits
+    function saveIssueEdit() {
+        if (!currentIssueId) return;
+
+        var priority = parseInt(document.getElementById('issue-edit-priority').value, 10);
+        var assignee = document.getElementById('issue-edit-assignee').value.trim();
+
+        var body = { id: currentIssueId };
+        if (priority >= 1 && priority <= 4) body.priority = priority;
+        if (assignee) body.assignee = assignee;
+
+        if (!body.priority && !body.assignee) {
+            showToast('error', 'Nothing to update', 'Change priority or assignee first.');
+            return;
+        }
+
+        fetch('/api/issues/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                showToast('success', 'Issue updated', currentIssueId + ' has been updated.');
+                // Hide edit form and refresh detail
+                document.getElementById('issue-edit-form').style.display = 'none';
+                openIssueDetail(currentIssueId);
+            } else {
+                showToast('error', 'Failed to update', data.error || 'Unknown error');
+            }
+        })
+        .catch(function(err) {
+            showToast('error', 'Error', 'Failed to update issue: ' + err.message);
+        });
+    }
+    window.saveIssueEdit = saveIssueEdit;
 
     // Back button from issue detail
     var issueBackBtn = document.getElementById('issue-back-btn');

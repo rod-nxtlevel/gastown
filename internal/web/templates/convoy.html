@@ -766,6 +766,33 @@
                             <div class="issue-detail-meta">
                                 <span id="issue-detail-type"></span>
                                 <span id="issue-detail-created"></span>
+                                <span id="issue-detail-assignee"></span>
+                            </div>
+                            <!-- Action buttons -->
+                            <div class="issue-detail-actions" id="issue-detail-actions">
+                                <button id="issue-close-btn" class="btn-action btn-close-issue" onclick="closeIssue()">Close Issue</button>
+                                <button id="issue-reopen-btn" class="btn-action btn-reopen-issue" onclick="reopenIssue()" style="display: none;">Reopen Issue</button>
+                                <button id="issue-edit-btn" class="btn-action btn-edit-issue" onclick="toggleIssueEdit()">Edit</button>
+                            </div>
+                            <!-- Inline edit form (hidden by default) -->
+                            <div id="issue-edit-form" class="issue-edit-form" style="display: none;">
+                                <div class="form-group-inline">
+                                    <label for="issue-edit-priority">Priority:</label>
+                                    <select id="issue-edit-priority">
+                                        <option value="1">P1 - Critical</option>
+                                        <option value="2">P2 - High</option>
+                                        <option value="3">P3 - Medium</option>
+                                        <option value="4">P4 - Low</option>
+                                    </select>
+                                </div>
+                                <div class="form-group-inline">
+                                    <label for="issue-edit-assignee">Assignee:</label>
+                                    <input type="text" id="issue-edit-assignee" placeholder="e.g. gastown/polecats/nux">
+                                </div>
+                                <div class="issue-edit-actions">
+                                    <button class="btn-primary btn-sm" onclick="saveIssueEdit()">Save</button>
+                                    <button class="btn-secondary btn-sm" onclick="toggleIssueEdit()">Cancel</button>
+                                </div>
                             </div>
                             <div class="issue-detail-section">
                                 <h4>Description</h4>
