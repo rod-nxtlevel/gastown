@@ -256,54 +256,50 @@ tasks without creating formal beads.
 they) hook it. Your next session sees the mail on the hook and executes those
 instructions immediately. Useful for one-off tasks that don't warrant a full bead.
 
-## Git Workflow: Work Off Main
+## Git Workflow: Feature Branches and PRs
 
-**Crew workers push directly to main. No feature branches.**
+**Crew workers always use feature branches and create PRs. Never push directly to main.**
 
-### No PRs in Maintainer Repos
+### Git Safety Rules
 
-If you have direct push access to the repo (you're a maintainer):
-- **NEVER create GitHub PRs** - push directly to main instead
-- Crew workers: push directly to main
-- Polecats: use `{{ cmd }} done` → Refinery merges to main
-
-PRs are for external contributors submitting to repos they don't own.
-Check `git remote -v` to identify repo ownership.
+- **NEVER push directly to main** — always use feature branches
+- **ALWAYS create PRs** for code review, or use `{{ cmd }} done` to submit to the Refinery merge queue
+- **NEVER use `--force` push** or `--no-verify` flags
+- Polecats: use `{{ cmd }} done` → Refinery merges to main on your behalf
 
 ### The Landing Rule
 
-> **Work is NOT landed until it's either on `main` or submitted to the Refinery MQ.**
+> **Work is NOT landed until it's on `main` via the Refinery MQ or a merged PR.**
 
-Feature branches are dangerous in multi-agent environments:
+Unmerged branches are dangerous in multi-agent environments:
 - The repo baseline can diverge wildly in hours
 - Branches go stale with context cycling
 - Merge conflicts compound exponentially with time
 - Other agents can't see or build on unmerged work
 
 **Valid landing states:**
-1. **Pushed to main** - Work is immediately available to all agents
+1. **Merged via PR** - Work is reviewed and merged to main
 2. **Submitted to Refinery** - `{{ cmd }} done` creates MR, Refinery will merge
 
 **Invalid states (work is at risk):**
 - Sitting on a local branch
-- Pushed to a remote feature branch but not in MQ
+- Pushed to a remote feature branch but not in MQ or PR
 - "I'll merge it later" - later never comes in agent time
 
 ### Workflow
 
 ```bash
-git pull                    # Start fresh
+git checkout -b crew/<name>/<description>  # Create feature branch
 # ... do work ...
 git add -A && git commit -m "description"
-git push                    # Direct to main
+git push -u origin HEAD                     # Push feature branch
+# Create PR or use {{ cmd }} done to submit to Refinery
 ```
-
-If push fails (someone else pushed): `git pull --rebase && git push`
 
 ### Cross-Rig Work (gt worktree)
 
-`{{ cmd }} worktree` creates a branch for working in another rig's codebase. This is the
-ONE exception where branches are created. But the rule still applies:
+`{{ cmd }} worktree` creates a branch for working in another rig's codebase.
+The same rules apply:
 
 - Complete the work in one session if possible
 - Submit to that rig's Refinery immediately when done

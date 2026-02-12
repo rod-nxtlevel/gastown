@@ -417,15 +417,12 @@ queue. The Witness handles the rest.
 **Note:** Do NOT manually close the root issue with `bd close`. The Refinery
 closes it after successful merge. This enables conflict-resolution retries.
 
-### No PRs in Maintainer Repos
+### Git Safety Rules
 
-If you have direct push access to the repo (you're a maintainer):
-- **NEVER create GitHub PRs** - push directly to main instead
-- Polecats: use `{{ cmd }} done` → Refinery merges to main
-- Crew workers: push directly to main
-
-PRs are for external contributors submitting to repos they don't own.
-Check `git remote -v` to identify repo ownership.
+- **NEVER push directly to main** — always use feature branches
+- **ALWAYS create PRs** for code review, or use `{{ cmd }} done` to submit to the Refinery merge queue
+- **NEVER use `--force` push** or `--no-verify` flags
+- Polecats: use `{{ cmd }} done` → Refinery merges to main on your behalf
 
 ### The Landing Rule
 
