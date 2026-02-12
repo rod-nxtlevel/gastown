@@ -1268,6 +1268,150 @@
     }
 
     // ============================================
+    // ESCALATION ACTIONS
+    // ============================================
+    var resolveModal = document.getElementById('resolve-modal');
+    var reassignModal = document.getElementById('reassign-modal');
+
+    // Handle escalation action button clicks
+    document.addEventListener('click', function(e) {
+        var btn = e.target.closest('.action-btn[data-action]');
+        if (!btn) return;
+
+        e.preventDefault();
+        var action = btn.getAttribute('data-action');
+        var escalationId = btn.getAttribute('data-id');
+        if (!escalationId) return;
+
+        if (action === 'ack') {
+            escalationAck(escalationId, btn);
+        } else if (action === 'resolve') {
+            openResolveModal(escalationId);
+        } else if (action === 'reassign') {
+            openReassignModal(escalationId);
+        }
+    });
+
+    function escalationAck(id, btn) {
+        btn.disabled = true;
+        btn.textContent = '...';
+
+        runCommand('escalate ack ' + id);
+
+        // Re-enable after a delay (the page will refresh via HTMX)
+        setTimeout(function() {
+            btn.disabled = false;
+            btn.textContent = '👍 Ack';
+        }, 3000);
+    }
+
+    function openResolveModal(id) {
+        if (!resolveModal) return;
+        window.pauseRefresh = true;
+        document.getElementById('resolve-escalation-id').value = id;
+        document.getElementById('resolve-reason').value = '';
+        resolveModal.style.display = 'block';
+        document.getElementById('resolve-reason').focus();
+    }
+
+    function closeResolveModal() {
+        if (resolveModal) resolveModal.style.display = 'none';
+        window.pauseRefresh = false;
+    }
+
+    function openReassignModal(id) {
+        if (!reassignModal) return;
+        window.pauseRefresh = true;
+        document.getElementById('reassign-escalation-id').value = id;
+
+        // Populate agent dropdown
+        var select = document.getElementById('reassign-agent');
+        select.innerHTML = '<option value="">Loading...</option>';
+        select.disabled = true;
+
+        fetch('/api/options')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                select.innerHTML = '<option value="">Select agent...</option>';
+                var agents = data.agents || [];
+                agents.forEach(function(agent) {
+                    var name = typeof agent === 'string' ? agent : agent.name;
+                    var running = typeof agent === 'object' ? agent.running : true;
+                    var opt = document.createElement('option');
+                    opt.value = name;
+                    opt.textContent = name + (running ? ' (● running)' : ' (○ stopped)');
+                    select.appendChild(opt);
+                });
+                select.disabled = false;
+            })
+            .catch(function() {
+                select.innerHTML = '<option value="">Failed to load agents</option>';
+                select.disabled = false;
+            });
+
+        reassignModal.style.display = 'block';
+    }
+
+    function closeReassignModal() {
+        if (reassignModal) reassignModal.style.display = 'none';
+        window.pauseRefresh = false;
+    }
+
+    // Resolve confirm
+    var resolveConfirmBtn = document.getElementById('resolve-confirm-btn');
+    if (resolveConfirmBtn) {
+        resolveConfirmBtn.addEventListener('click', function() {
+            var id = document.getElementById('resolve-escalation-id').value;
+            var reason = document.getElementById('resolve-reason').value.trim();
+            if (!reason) {
+                showToast('error', 'Required', 'Please enter a resolution reason');
+                return;
+            }
+            resolveConfirmBtn.disabled = true;
+            resolveConfirmBtn.textContent = 'Resolving...';
+            runCommand('escalate close ' + id + ' --reason "' + reason.replace(/"/g, '\\"') + '"');
+            closeResolveModal();
+            setTimeout(function() {
+                resolveConfirmBtn.disabled = false;
+                resolveConfirmBtn.textContent = 'Resolve';
+            }, 2000);
+        });
+    }
+
+    // Resolve cancel
+    var resolveCancelBtn = document.getElementById('resolve-cancel-btn');
+    if (resolveCancelBtn) {
+        resolveCancelBtn.addEventListener('click', closeResolveModal);
+    }
+
+    // Reassign confirm
+    var reassignConfirmBtn = document.getElementById('reassign-confirm-btn');
+    if (reassignConfirmBtn) {
+        reassignConfirmBtn.addEventListener('click', function() {
+            var id = document.getElementById('reassign-escalation-id').value;
+            var agent = document.getElementById('reassign-agent').value;
+            if (!agent) {
+                showToast('error', 'Required', 'Please select an agent');
+                return;
+            }
+            reassignConfirmBtn.disabled = true;
+            reassignConfirmBtn.textContent = 'Reassigning...';
+            runCommand('sling ' + id + ' ' + agent);
+            closeReassignModal();
+            setTimeout(function() {
+                reassignConfirmBtn.disabled = false;
+                reassignConfirmBtn.textContent = 'Reassign';
+            }, 2000);
+        });
+    }
+
+    // Reassign cancel
+    var reassignCancelBtn = document.getElementById('reassign-cancel-btn');
+    if (reassignCancelBtn) {
+        reassignCancelBtn.addEventListener('click', closeReassignModal);
+    }
+
+    // ============================================
     // ISSUE PANEL INTERACTIONS
     // ============================================
     var issuesList = document.getElementById('issues-list');

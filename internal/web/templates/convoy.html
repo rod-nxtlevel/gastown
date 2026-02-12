@@ -532,7 +532,7 @@
             </div>
 
             <!-- Escalations Panel -->
-            <div class="panel">
+            <div class="panel" id="escalations-panel">
                 <div class="panel-header">
                     <h2>🚨 Escalations</h2>
                     <span class="count{{if .Escalations}} count-alert{{end}}">{{len .Escalations}}</span>
@@ -547,11 +547,12 @@
                                 <th>Issue</th>
                                 <th>From</th>
                                 <th>Age</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             {{range .Escalations}}
-                            <tr>
+                            <tr class="escalation-row" data-escalation-id="{{.ID}}">
                                 <td>
                                     {{if eq .Severity "critical"}}<span class="badge badge-red">CRIT</span>
                                     {{else if eq .Severity "high"}}<span class="badge badge-orange">HIGH</span>
@@ -564,6 +565,13 @@
                                 </td>
                                 <td>{{.EscalatedBy}}</td>
                                 <td>{{.Age}}</td>
+                                <td class="escalation-actions">
+                                    {{if not .Acked}}
+                                    <button class="action-btn action-ack" data-action="ack" data-id="{{.ID}}" title="Acknowledge">👍 Ack</button>
+                                    {{end}}
+                                    <button class="action-btn action-resolve" data-action="resolve" data-id="{{.ID}}" title="Resolve">✓ Resolve</button>
+                                    <button class="action-btn action-reassign" data-action="reassign" data-id="{{.ID}}" title="Reassign">↻ Reassign</button>
+                                </td>
                             </tr>
                             {{end}}
                         </tbody>
@@ -573,6 +581,36 @@
                         <p>No escalations</p>
                     </div>
                     {{end}}
+                </div>
+                <!-- Resolve modal (hidden by default) -->
+                <div id="resolve-modal" class="escalation-modal" style="display: none;">
+                    <div class="escalation-modal-content">
+                        <h4>Resolve Escalation</h4>
+                        <input type="hidden" id="resolve-escalation-id" value="">
+                        <div class="form-group">
+                            <label for="resolve-reason">Resolution reason *</label>
+                            <textarea id="resolve-reason" rows="2" placeholder="How was this resolved?"></textarea>
+                        </div>
+                        <div class="escalation-modal-actions">
+                            <button class="action-btn action-resolve" id="resolve-confirm-btn">Resolve</button>
+                            <button class="action-btn action-btn-cancel" id="resolve-cancel-btn">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+                <!-- Reassign modal (hidden by default) -->
+                <div id="reassign-modal" class="escalation-modal" style="display: none;">
+                    <div class="escalation-modal-content">
+                        <h4>Reassign Escalation</h4>
+                        <input type="hidden" id="reassign-escalation-id" value="">
+                        <div class="form-group">
+                            <label for="reassign-agent">Assign to *</label>
+                            <select id="reassign-agent"><option value="">Loading agents...</option></select>
+                        </div>
+                        <div class="escalation-modal-actions">
+                            <button class="action-btn action-reassign" id="reassign-confirm-btn">Reassign</button>
+                            <button class="action-btn action-btn-cancel" id="reassign-cancel-btn">Cancel</button>
+                        </div>
+                    </div>
                 </div>
             </div>
 

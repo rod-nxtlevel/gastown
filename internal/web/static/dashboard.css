@@ -2255,6 +2255,106 @@
             color: var(--text-primary);
         }
 
+        /* Escalation action buttons */
+        .escalation-actions {
+            display: flex;
+            gap: 4px;
+            flex-wrap: nowrap;
+        }
+
+        .action-btn {
+            padding: 2px 8px;
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            background: var(--bg-card);
+            color: var(--text-secondary);
+            font-size: 0.7rem;
+            font-family: inherit;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.15s;
+        }
+
+        .action-btn:hover {
+            background: var(--bg-card-hover);
+            color: var(--text-primary);
+        }
+
+        .action-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .action-ack:hover {
+            border-color: var(--cyan);
+            color: var(--cyan);
+        }
+
+        .action-resolve:hover {
+            border-color: var(--green);
+            color: var(--green);
+        }
+
+        .action-reassign:hover {
+            border-color: var(--yellow);
+            color: var(--yellow);
+        }
+
+        .action-btn-cancel {
+            background: transparent;
+        }
+
+        .action-btn-cancel:hover {
+            border-color: var(--red);
+            color: var(--red);
+        }
+
+        /* Escalation inline modals */
+        .escalation-modal {
+            padding: 12px 16px;
+            border-top: 1px solid var(--border);
+            background: var(--bg-dark);
+        }
+
+        .escalation-modal-content h4 {
+            margin: 0 0 10px 0;
+            font-size: 0.85rem;
+            color: var(--text-primary);
+        }
+
+        .escalation-modal-content .form-group {
+            margin-bottom: 10px;
+        }
+
+        .escalation-modal-content select,
+        .escalation-modal-content textarea {
+            width: 100%;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 6px 8px;
+            border-radius: 3px;
+            font-family: inherit;
+            font-size: 0.8rem;
+        }
+
+        .escalation-modal-content select:focus,
+        .escalation-modal-content textarea:focus {
+            outline: none;
+            border-color: var(--cyan);
+        }
+
+        .escalation-modal-content textarea {
+            resize: vertical;
+            min-height: 50px;
+        }
+
+        .escalation-modal-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
         @keyframes slideIn {
             from { transform: translateX(100%); opacity: 0; }
             to { transform: translateX(0); opacity: 1; }
