@@ -1162,6 +1162,94 @@
             gap: 12px;
         }
 
+        /* Merge queue action buttons (inline in table rows) */
+        .mq-actions {
+            white-space: nowrap;
+        }
+
+        .mq-action-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 26px;
+            height: 26px;
+            padding: 0;
+            margin: 0 2px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .mq-action-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+        }
+
+        .mq-approve-btn:hover {
+            border-color: var(--green);
+            color: var(--green);
+            background: rgba(194, 217, 76, 0.15);
+        }
+
+        .mq-reject-btn:hover {
+            border-color: var(--red);
+            color: var(--red);
+            background: rgba(240, 113, 120, 0.15);
+        }
+
+        .mq-retry-btn:hover {
+            border-color: var(--yellow);
+            color: var(--yellow);
+            background: rgba(255, 180, 84, 0.15);
+        }
+
+        /* PR detail view action buttons */
+        .pr-detail-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .mq-detail-btn {
+            padding: 6px 14px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .mq-detail-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+        }
+
+        .mq-detail-approve:hover {
+            border-color: var(--green);
+            color: var(--green);
+            background: rgba(194, 217, 76, 0.15);
+        }
+
+        .mq-detail-reject:hover {
+            border-color: var(--red);
+            color: var(--red);
+            background: rgba(240, 113, 120, 0.15);
+        }
+
+        .mq-detail-retry:hover {
+            border-color: var(--yellow);
+            color: var(--yellow);
+            background: rgba(255, 180, 84, 0.15);
+        }
+
         /* Activity feed styles */
         .activity-feed {
             padding: 8px !important;

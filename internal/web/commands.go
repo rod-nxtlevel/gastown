@@ -86,6 +86,15 @@ var AllowedCommands = map[string]CommandMeta{
 	"hook attach": {Confirm: true, Desc: "Attach hook", Category: "Hooks", Args: "<bead>", ArgType: "hooks"},
 	"hook detach": {Confirm: true, Desc: "Detach hook", Category: "Hooks", Args: "<bead>", ArgType: "hooks"},
 
+	// Merge queue read-only
+	"mq list":   {Safe: true, Desc: "Show merge queue", Category: "Merge Queue", Args: "<rig>", ArgType: "rigs"},
+	"mq status": {Safe: true, Desc: "Show MR status", Category: "Merge Queue", Args: "<mr-id>"},
+	"mq next":   {Safe: true, Desc: "Show next MR to process", Category: "Merge Queue", Args: "<rig>", ArgType: "rigs"},
+
+	// Merge queue actions
+	"mq retry":  {Confirm: true, Desc: "Retry failed MR", Category: "Merge Queue", Args: "<rig> <mr-id>", ArgType: "rigs"},
+	"mq reject": {Confirm: true, Desc: "Reject MR", Category: "Merge Queue", Args: "<rig> <mr-id> -r <reason>", ArgType: "rigs"},
+
 	// Notifications
 	"notify":    {Confirm: true, Desc: "Send notification", Category: "Notifications", Args: "<message>"},
 	"broadcast": {Confirm: true, Desc: "Broadcast message", Category: "Notifications", Args: "<message>"},

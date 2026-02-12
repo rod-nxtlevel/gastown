@@ -1525,4 +1525,111 @@
         });
     }
 
+    // ============================================
+    // MERGE QUEUE ACTIONS
+    // ============================================
+
+    // Run a merge queue action (approve, reject, retry)
+    function runMQAction(action, prUrl, prRepo, prNumber, reason) {
+        var payload = {
+            action: action,
+            url: prUrl,
+            repo: prRepo || '',
+            number: parseInt(prNumber, 10) || 0
+        };
+        if (reason) {
+            payload.reason = reason;
+        }
+
+        showToast('info', 'Running...', action + ' #' + prNumber);
+
+        return fetch('/api/mq/action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                showToast('success', data.message || 'Success', '#' + prNumber + ' ' + action);
+                if (data.output && data.output.trim()) {
+                    showOutput('mq ' + action, data.output);
+                }
+            } else {
+                showToast('error', 'Failed', data.error || 'Unknown error');
+                if (data.output) {
+                    showOutput('mq ' + action, data.output);
+                }
+            }
+            return data;
+        })
+        .catch(function(err) {
+            showToast('error', 'Error', err.message || 'Request failed');
+        });
+    }
+
+    // Inline action buttons on merge queue rows
+    document.addEventListener('click', function(e) {
+        var btn = e.target.closest('.mq-action-btn');
+        if (!btn) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        var action = '';
+        if (btn.classList.contains('mq-approve-btn')) action = 'approve';
+        else if (btn.classList.contains('mq-reject-btn')) action = 'reject';
+        else if (btn.classList.contains('mq-retry-btn')) action = 'retry';
+        if (!action) return;
+
+        var prUrl = btn.getAttribute('data-pr-url');
+        var prRepo = btn.getAttribute('data-pr-repo');
+        var prNumber = btn.getAttribute('data-pr-number');
+
+        if (action === 'reject') {
+            var reason = prompt('Reason for closing PR #' + prNumber + ':');
+            if (reason === null) return; // Cancelled
+            runMQAction(action, prUrl, prRepo, prNumber, reason);
+        } else {
+            runMQAction(action, prUrl, prRepo, prNumber);
+        }
+    });
+
+    // PR detail view action buttons
+    var prActionApprove = document.getElementById('pr-action-approve');
+    var prActionReject = document.getElementById('pr-action-reject');
+    var prActionRetry = document.getElementById('pr-action-retry');
+
+    if (prActionApprove) {
+        prActionApprove.addEventListener('click', function() {
+            if (!currentPrUrl) return;
+            var row = document.querySelector('.pr-row[data-pr-url="' + currentPrUrl + '"]');
+            var prRepo = row ? row.getAttribute('data-pr-repo') : '';
+            var prNumber = row ? row.getAttribute('data-pr-number') : '';
+            runMQAction('approve', currentPrUrl, prRepo, prNumber);
+        });
+    }
+
+    if (prActionReject) {
+        prActionReject.addEventListener('click', function() {
+            if (!currentPrUrl) return;
+            var row = document.querySelector('.pr-row[data-pr-url="' + currentPrUrl + '"]');
+            var prRepo = row ? row.getAttribute('data-pr-repo') : '';
+            var prNumber = row ? row.getAttribute('data-pr-number') : '';
+            var reason = prompt('Reason for closing PR #' + prNumber + ':');
+            if (reason === null) return;
+            runMQAction('reject', currentPrUrl, prRepo, prNumber, reason);
+        });
+    }
+
+    if (prActionRetry) {
+        prActionRetry.addEventListener('click', function() {
+            if (!currentPrUrl) return;
+            var row = document.querySelector('.pr-row[data-pr-url="' + currentPrUrl + '"]');
+            var prRepo = row ? row.getAttribute('data-pr-repo') : '';
+            var prNumber = row ? row.getAttribute('data-pr-number') : '';
+            runMQAction('retry', currentPrUrl, prRepo, prNumber);
+        });
+    }
+
 })();
