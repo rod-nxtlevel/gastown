@@ -39,10 +39,12 @@
         var mailCompose = document.getElementById('mail-compose');
         var issueDetail = document.getElementById('issue-detail');
         var prDetail = document.getElementById('pr-detail');
+        var rigDetailEl = document.getElementById('rig-detail');
         var inDetailView = (mailDetail && mailDetail.style.display !== 'none') ||
                           (mailCompose && mailCompose.style.display !== 'none') ||
                           (issueDetail && issueDetail.style.display !== 'none') ||
-                          (prDetail && prDetail.style.display !== 'none');
+                          (prDetail && prDetail.style.display !== 'none') ||
+                          (rigDetailEl && rigDetailEl.style.display !== 'none');
         if (!inDetailView && !hasExpanded) {
             window.pauseRefresh = false;
         }
@@ -1524,5 +1526,197 @@
             window.pauseRefresh = false;
         });
     }
+
+    // ============================================
+    // RIG DETAIL PANEL
+    // ============================================
+    var rigList = document.getElementById('rig-list');
+    var rigDetail = document.getElementById('rig-detail');
+    var currentRigName = null;
+
+    // Click on rig row to view details
+    document.addEventListener('click', function(e) {
+        var rigRow = e.target.closest('.rig-row');
+        if (rigRow && rigRow.hasAttribute('data-rig-name')) {
+            e.preventDefault();
+            var rigName = rigRow.getAttribute('data-rig-name');
+            if (rigName) {
+                openRigDetail(rigName);
+            }
+        }
+    });
+
+    function openRigDetail(rigName) {
+        currentRigName = rigName;
+
+        // Pause HTMX refresh while viewing rig
+        window.pauseRefresh = true;
+
+        // Show loading state
+        document.getElementById('rig-detail-name').textContent = rigName;
+        document.getElementById('rig-detail-url').textContent = 'Loading...';
+        document.getElementById('rig-detail-stats').innerHTML = '';
+        document.getElementById('rig-detail-health').innerHTML = '';
+        document.getElementById('rig-detail-agents').innerHTML = '<tr><td colspan="6">Loading agents...</td></tr>';
+        document.getElementById('rig-detail-hooks-section').style.display = 'none';
+
+        // Show detail view
+        if (rigList) rigList.style.display = 'none';
+        if (rigDetail) rigDetail.style.display = 'block';
+
+        // Fetch rig details
+        fetch('/api/rig/detail?name=' + encodeURIComponent(rigName))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error) {
+                    document.getElementById('rig-detail-url').textContent = 'Error: ' + data.error;
+                    document.getElementById('rig-detail-agents').innerHTML = '';
+                    return;
+                }
+
+                // Name and URL
+                document.getElementById('rig-detail-name').textContent = data.name || rigName;
+                document.getElementById('rig-detail-url').textContent = data.git_url || '';
+
+                // Agent counts
+                var counts = data.agent_counts || {};
+                var statsHtml = '';
+                if (counts.polecats) statsHtml += '<span class="rig-stat"><span class="rig-stat-value">' + counts.polecats + '</span><span class="rig-stat-label">Polecats</span></span>';
+                if (counts.crew) statsHtml += '<span class="rig-stat"><span class="rig-stat-value">' + counts.crew + '</span><span class="rig-stat-label">Crew</span></span>';
+                if (counts.witness) statsHtml += '<span class="rig-stat"><span class="rig-stat-value">' + counts.witness + '</span><span class="rig-stat-label">Witness</span></span>';
+                if (counts.refinery) statsHtml += '<span class="rig-stat"><span class="rig-stat-value">' + counts.refinery + '</span><span class="rig-stat-label">Refinery</span></span>';
+                statsHtml += '<span class="rig-stat rig-stat-total"><span class="rig-stat-value">' + (counts.total || 0) + '</span><span class="rig-stat-label">Total</span></span>';
+                document.getElementById('rig-detail-stats').innerHTML = statsHtml;
+
+                // Health indicators
+                var health = data.health || {};
+                var healthHtml = '';
+                if (health.working_agents) healthHtml += '<span class="rig-health-item rig-health-green">' + health.working_agents + ' working</span>';
+                if (health.stale_agents) healthHtml += '<span class="rig-health-item rig-health-yellow">' + health.stale_agents + ' stale</span>';
+                if (health.stuck_agents) healthHtml += '<span class="rig-health-item rig-health-red">' + health.stuck_agents + ' stuck</span>';
+                if (health.idle_agents) healthHtml += '<span class="rig-health-item rig-health-muted">' + health.idle_agents + ' idle</span>';
+                if (!healthHtml) healthHtml = '<span class="rig-health-item rig-health-muted">No agents</span>';
+                document.getElementById('rig-detail-health').innerHTML = healthHtml;
+
+                // Agents table
+                var agents = data.agents || [];
+                var agentsTbody = document.getElementById('rig-detail-agents');
+                if (agents.length > 0) {
+                    agentsTbody.innerHTML = '';
+                    agents.forEach(function(agent) {
+                        var tr = document.createElement('tr');
+
+                        var statusBadge = '';
+                        switch (agent.status) {
+                            case 'working':
+                                statusBadge = '<span class="badge badge-green">Working</span>';
+                                break;
+                            case 'stale':
+                                statusBadge = '<span class="badge badge-yellow">Stale</span>';
+                                break;
+                            case 'stuck':
+                                statusBadge = '<span class="badge badge-red">Stuck</span>';
+                                break;
+                            case 'none':
+                                statusBadge = '<span class="badge badge-muted">No Session</span>';
+                                break;
+                            default:
+                                statusBadge = '<span class="badge badge-muted">Idle</span>';
+                        }
+
+                        var roleBadge = '';
+                        switch (agent.role) {
+                            case 'polecat':
+                                roleBadge = '<span class="badge badge-muted">polecat</span>';
+                                break;
+                            case 'crew':
+                                roleBadge = '<span class="badge badge-purple">crew</span>';
+                                break;
+                            case 'witness':
+                                roleBadge = '<span class="badge badge-cyan">witness</span>';
+                                break;
+                            case 'refinery':
+                                roleBadge = '<span class="badge badge-blue">refinery</span>';
+                                break;
+                            default:
+                                roleBadge = '<span class="badge badge-muted">' + escapeHtml(agent.role) + '</span>';
+                        }
+
+                        var hookCell = '—';
+                        if (agent.hook) {
+                            hookCell = '<span class="issue-id">' + escapeHtml(agent.hook) + '</span>';
+                            if (agent.hook_title) {
+                                hookCell += ' <span class="issue-title">' + escapeHtml(agent.hook_title) + '</span>';
+                            }
+                        }
+
+                        var sessionBadge = '';
+                        switch (agent.session) {
+                            case 'attached':
+                                sessionBadge = '<span class="badge badge-green">Attached</span>';
+                                break;
+                            case 'detached':
+                                sessionBadge = '<span class="badge badge-muted">Detached</span>';
+                                break;
+                            default:
+                                sessionBadge = '<span class="badge badge-muted">None</span>';
+                        }
+
+                        tr.innerHTML =
+                            '<td><span class="polecat-name">' + escapeHtml(agent.name) + '</span></td>' +
+                            '<td>' + roleBadge + '</td>' +
+                            '<td>' + statusBadge + '</td>' +
+                            '<td class="polecat-issue">' + hookCell + '</td>' +
+                            '<td>' + escapeHtml(agent.last_active || '—') + '</td>' +
+                            '<td>' + sessionBadge + '</td>';
+                        agentsTbody.appendChild(tr);
+                    });
+                } else {
+                    agentsTbody.innerHTML = '<tr><td colspan="6" class="empty-state">No agents found</td></tr>';
+                }
+
+                // Hooks section
+                var hooks = data.hooks || [];
+                if (hooks.length > 0) {
+                    document.getElementById('rig-detail-hooks-section').style.display = 'block';
+                    var hooksHtml = '<table><thead><tr><th>Bead</th><th>Agent</th><th>Title</th></tr></thead><tbody>';
+                    hooks.forEach(function(hook) {
+                        hooksHtml += '<tr>' +
+                            '<td><span class="hook-id">' + escapeHtml(hook.id || hook.ID || '') + '</span></td>' +
+                            '<td>' + escapeHtml(hook.assignee || hook.Assignee || '') + '</td>' +
+                            '<td>' + escapeHtml(hook.title || hook.Title || '') + '</td>' +
+                            '</tr>';
+                    });
+                    hooksHtml += '</tbody></table>';
+                    document.getElementById('rig-detail-hooks').innerHTML = hooksHtml;
+                }
+            })
+            .catch(function(err) {
+                document.getElementById('rig-detail-url').textContent = 'Error loading rig details';
+                document.getElementById('rig-detail-agents').innerHTML =
+                    '<tr><td colspan="6">Failed: ' + escapeHtml(err.message) + '</td></tr>';
+            });
+    }
+
+    // Back button from rig detail
+    var rigBackBtn = document.getElementById('rig-back-btn');
+    if (rigBackBtn) {
+        rigBackBtn.addEventListener('click', function() {
+            if (rigDetail) rigDetail.style.display = 'none';
+            if (rigList) rigList.style.display = 'block';
+            currentRigName = null;
+            // Resume HTMX refresh
+            window.pauseRefresh = false;
+        });
+    }
+
+    // Include rig detail in the HTMX swap pause check
+    var origAfterSwap = document.body.onhtmxafterswap;
+    document.body.addEventListener('htmx:afterSwap', function() {
+        var rigDetailEl = document.getElementById('rig-detail');
+        if (rigDetailEl && rigDetailEl.style.display !== 'none') {
+            window.pauseRefresh = true;
+        }
+    });
 
 })();
