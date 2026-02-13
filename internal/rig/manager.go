@@ -1,10 +1,10 @@
 package rig
 
 import (
-	"github.com/steveyegge/gastown/internal/cli"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/steveyegge/gastown/internal/cli"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +15,7 @@ import (
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/constants"
+	"github.com/steveyegge/gastown/internal/doltserver"
 	"github.com/steveyegge/gastown/internal/git"
 	"github.com/steveyegge/gastown/internal/runtime"
 )
@@ -424,15 +425,22 @@ func (m *Manager) AddRig(opts AddRigOptions) (*Rig, error) {
 		// DB files are gitignored so they won't exist after clone — bd init creates them.
 		// bd init --prefix will create the database and auto-import from issues.jsonl.
 		if !bdDatabaseExists(sourceBeadsDir) {
-			cmd := exec.Command("bd", "--no-daemon", "init", "--prefix", opts.BeadsPrefix, "--backend", "dolt") // opts.BeadsPrefix validated earlier
+			cmd := exec.Command("bd", "init", "--prefix", opts.BeadsPrefix, "--backend", "dolt", "--server") // opts.BeadsPrefix validated earlier
 			cmd.Dir = mayorRigPath
 			if output, err := cmd.CombinedOutput(); err != nil {
 				fmt.Printf("  Warning: Could not init bd database: %v (%s)\n", err, strings.TrimSpace(string(output)))
 			}
 			// Configure custom types for Gas Town (beads v0.46.0+)
-			configCmd := exec.Command("bd", "--no-daemon", "config", "set", "types.custom", constants.BeadsCustomTypes)
+			configCmd := exec.Command("bd", "config", "set", "types.custom", constants.BeadsCustomTypes)
 			configCmd.Dir = mayorRigPath
 			_, _ = configCmd.CombinedOutput() // Ignore errors - older beads don't need this
+
+			// Explicitly set issue_prefix config (bd init --prefix may not persist it in newer versions).
+			prefixSetCmd := exec.Command("bd", "config", "set", "issue_prefix", opts.BeadsPrefix)
+			prefixSetCmd.Dir = mayorRigPath
+			if prefixOutput, prefixErr := prefixSetCmd.CombinedOutput(); prefixErr != nil {
+				fmt.Printf("  Warning: Could not set issue_prefix: %v (%s)\n", prefixErr, strings.TrimSpace(string(prefixOutput)))
+			}
 		}
 	}
 
@@ -450,6 +458,14 @@ func (m *Manager) AddRig(opts AddRigOptions) (*Rig, error) {
 		return nil, fmt.Errorf("initializing beads: %w", err)
 	}
 	fmt.Printf("   ✓ Initialized beads (prefix: %s)\n", opts.BeadsPrefix)
+
+	// Ensure metadata.json has dolt_mode=server and dolt_database=<rigName>.
+	// bd init --server sets dolt_mode but not dolt_database. EnsureMetadata
+	// writes both fields so bd connects to the correct centralized database.
+	if err := doltserver.EnsureMetadata(m.townRoot, opts.Name); err != nil {
+		// Non-fatal: beads will fall back to embedded mode but rig is functional
+		fmt.Printf("  Warning: Could not set Dolt server metadata: %v\n", err)
+	}
 
 	// Provision PRIME.md with Gas Town context for all workers in this rig.
 	// This is the fallback if SessionStart hook fails - ensures ALL workers
@@ -660,33 +676,46 @@ func (m *Manager) initBeads(rigPath, prefix string) error {
 	}
 	filteredEnv = append(filteredEnv, "BEADS_DIR="+beadsDir)
 
-	// Run bd init if available (default to Dolt backend)
-	cmd := exec.Command("bd", "--no-daemon", "init", "--prefix", prefix, "--backend", "dolt")
+	// Run bd init if available (default to Dolt server backend).
+	// --server tells bd to set dolt_mode=server in metadata.json so bd
+	// connects to the centralized Dolt sql-server instead of embedded mode.
+	cmd := exec.Command("bd", "init", "--prefix", prefix, "--backend", "dolt", "--server")
 	cmd.Dir = rigPath
 	cmd.Env = filteredEnv
-	_, err := cmd.CombinedOutput()
-	if err != nil {
+	_, bdInitErr := cmd.CombinedOutput()
+	if bdInitErr != nil {
 		// bd might not be installed or failed, create minimal structure
 		// Note: beads currently expects YAML format for config
 		configPath := filepath.Join(beadsDir, "config.yaml")
-		configContent := fmt.Sprintf("prefix: %s\n", prefix)
+		configContent := fmt.Sprintf("prefix: %s\nissue-prefix: %s\n", prefix, prefix)
 		if writeErr := os.WriteFile(configPath, []byte(configContent), 0644); writeErr != nil {
 			return writeErr
 		}
-	}
+	} else {
+		// bd init succeeded - configure the Dolt database
 
-	// Configure custom types for Gas Town (agent, role, rig, convoy).
-	// These were extracted from beads core in v0.46.0 and now require explicit config.
-	configCmd := exec.Command("bd", "--no-daemon", "config", "set", "types.custom", constants.BeadsCustomTypes)
-	configCmd.Dir = rigPath
-	configCmd.Env = filteredEnv
-	// Ignore errors - older beads versions don't need this
-	_, _ = configCmd.CombinedOutput()
+		// Configure custom types for Gas Town (agent, role, rig, convoy).
+		// These were extracted from beads core in v0.46.0 and now require explicit config.
+		configCmd := exec.Command("bd", "config", "set", "types.custom", constants.BeadsCustomTypes)
+		configCmd.Dir = rigPath
+		configCmd.Env = filteredEnv
+		// Ignore errors - older beads versions don't need this
+		_, _ = configCmd.CombinedOutput()
+
+		// Explicitly set issue_prefix config (bd init --prefix may not persist it in newer versions).
+		// Without this, bd create and gt sling fail with "issue_prefix config is missing".
+		prefixSetCmd := exec.Command("bd", "config", "set", "issue_prefix", prefix)
+		prefixSetCmd.Dir = rigPath
+		prefixSetCmd.Env = filteredEnv
+		if prefixOutput, prefixErr := prefixSetCmd.CombinedOutput(); prefixErr != nil {
+			return fmt.Errorf("bd config set issue_prefix failed: %s", strings.TrimSpace(string(prefixOutput)))
+		}
+	}
 
 	// Ensure database has repository fingerprint (GH #25).
 	// This is idempotent - safe on both new and legacy (pre-0.17.5) databases.
 	// Without fingerprint, the bd daemon fails to start silently.
-	migrateCmd := exec.Command("bd", "--no-daemon", "migrate", "--update-repo-id")
+	migrateCmd := exec.Command("bd", "migrate", "--update-repo-id")
 	migrateCmd.Dir = rigPath
 	migrateCmd.Env = filteredEnv
 	// Ignore errors - fingerprint is optional for functionality
@@ -1261,7 +1290,7 @@ func (m *Manager) createPatrolHooks(workspacePath string, runtimeConfig *config.
 // These molecules define the work loops for Deacon, Witness, and Refinery roles.
 func (m *Manager) seedPatrolMolecules(rigPath string) error {
 	// Use bd command to seed molecules (more reliable than internal API)
-	cmd := exec.Command("bd", "--no-daemon", "mol", "seed", "--patrol")
+	cmd := exec.Command("bd", "mol", "seed", "--patrol")
 	cmd.Dir = rigPath
 	if err := cmd.Run(); err != nil {
 		// Fallback: bd mol seed might not support --patrol yet
@@ -1294,7 +1323,7 @@ func (m *Manager) seedPatrolMoleculesManually(rigPath string) error {
 
 	for _, mol := range patrolMols {
 		// Check if already exists by title
-		checkCmd := exec.Command("bd", "--no-daemon", "list", "--type=molecule", "--format=json")
+		checkCmd := exec.Command("bd", "list", "--type=molecule", "--format=json")
 		checkCmd.Dir = rigPath
 		output, _ := checkCmd.Output()
 		if strings.Contains(string(output), mol.title) {
@@ -1302,7 +1331,7 @@ func (m *Manager) seedPatrolMoleculesManually(rigPath string) error {
 		}
 
 		// Create the molecule
-		cmd := exec.Command("bd", "--no-daemon", "create", //nolint:gosec // G204: bd is a trusted internal tool
+		cmd := exec.Command("bd", "create", //nolint:gosec // G204: bd is a trusted internal tool
 			"--type=molecule",
 			"--title="+mol.title,
 			"--description="+mol.desc,

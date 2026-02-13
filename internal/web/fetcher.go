@@ -320,6 +320,7 @@ func (f *LiveConvoyFetcher) getIssueDetailsBatch(issueIDs []string) map[string]*
 
 	stdout, err := runCmd(f.cmdTimeout, "bd", args...)
 	if err != nil {
+		log.Printf("warning: bd show failed for %d issues: %v", len(issueIDs), err)
 		return result
 	}
 
@@ -331,6 +332,7 @@ func (f *LiveConvoyFetcher) getIssueDetailsBatch(issueIDs []string) map[string]*
 		UpdatedAt string `json:"updated_at"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &issues); err != nil {
+		log.Printf("warning: parsing bd show output: %v", err)
 		return result
 	}
 
@@ -817,7 +819,8 @@ func (f *LiveConvoyFetcher) getAssignedIssuesMap() map[string]assignedIssue {
 	// Query all in_progress issues (these are the ones being worked on)
 	stdout, err := f.runBdCmd(f.townRoot, "list", "--status=in_progress", "--json")
 	if err != nil {
-		return result // Return empty map on error
+		log.Printf("warning: bd list in_progress failed: %v", err)
+		return result
 	}
 
 	var issues []struct {
@@ -826,6 +829,7 @@ func (f *LiveConvoyFetcher) getAssignedIssuesMap() map[string]assignedIssue {
 		Assignee string `json:"assignee"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &issues); err != nil {
+		log.Printf("warning: parsing bd list output: %v", err)
 		return result
 	}
 
@@ -1622,10 +1626,10 @@ func (f *LiveConvoyFetcher) FetchActivity() ([]ActivityRow, error) {
 		return nil, nil
 	}
 
-	// Take last 20 events (most recent)
+	// Take last 50 events for richer timeline
 	start := 0
-	if len(lines) > 20 {
-		start = len(lines) - 20
+	if len(lines) > 50 {
+		start = len(lines) - 50
 	}
 
 	var rows []ActivityRow
@@ -1652,9 +1656,12 @@ func (f *LiveConvoyFetcher) FetchActivity() ([]ActivityRow, error) {
 		}
 
 		row := ActivityRow{
-			Type:  event.Type,
-			Actor: formatAgentAddress(event.Actor),
-			Icon:  eventIcon(event.Type),
+			Type:         event.Type,
+			Category:     eventCategory(event.Type),
+			Actor:        formatAgentAddress(event.Actor),
+			Rig:          extractRig(event.Actor),
+			Icon:         eventIcon(event.Type),
+			RawTimestamp: event.Timestamp,
 		}
 
 		// Calculate time ago
@@ -1669,6 +1676,34 @@ func (f *LiveConvoyFetcher) FetchActivity() ([]ActivityRow, error) {
 	}
 
 	return rows, nil
+}
+
+// eventCategory classifies an event type into a filter category.
+func eventCategory(eventType string) string {
+	switch eventType {
+	case "spawn", "kill", "session_start", "session_end", "session_death", "mass_death", "nudge", "handoff":
+		return "agent"
+	case "sling", "hook", "unhook", "done", "merge_started", "merged", "merge_failed":
+		return "work"
+	case "mail", "escalation_sent", "escalation_acked", "escalation_closed":
+		return "comms"
+	case "boot", "halt", "patrol_started", "patrol_complete":
+		return "system"
+	default:
+		return "system"
+	}
+}
+
+// extractRig extracts the rig name from an actor address like "gastown/polecats/nux".
+func extractRig(actor string) string {
+	if actor == "" {
+		return ""
+	}
+	parts := strings.SplitN(actor, "/", 2)
+	if len(parts) > 0 {
+		return parts[0]
+	}
+	return ""
 }
 
 // eventIcon returns an emoji for an event type.

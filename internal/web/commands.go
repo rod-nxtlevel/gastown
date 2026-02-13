@@ -29,7 +29,8 @@ var AllowedCommands = map[string]CommandMeta{
 	"status":      {Safe: true, Desc: "Show town status", Category: "Status"},
 	"agents list": {Safe: true, Desc: "List active agents", Category: "Status"},
 	"convoy list": {Safe: true, Desc: "List convoys", Category: "Convoys"},
-	"convoy show": {Safe: true, Desc: "Show convoy details", Category: "Convoys", Args: "<convoy-id>", ArgType: "convoys"},
+	"convoy show":   {Safe: true, Desc: "Show convoy details", Category: "Convoys", Args: "<convoy-id>", ArgType: "convoys"},
+	"convoy status": {Safe: true, Desc: "Show convoy status with tracked issues", Category: "Convoys", Args: "<convoy-id> --json", ArgType: "convoys"},
 	"mail inbox":  {Safe: true, Desc: "Check inbox", Category: "Mail"},
 	"mail check":  {Safe: true, Desc: "Check for new mail", Category: "Mail"},
 	"mail peek":   {Safe: true, Desc: "Peek at message", Category: "Mail", Args: "<message-id>"},
@@ -59,7 +60,9 @@ var AllowedCommands = map[string]CommandMeta{
 	"mail reply":     {Confirm: true, Desc: "Reply to message", Category: "Mail", Args: "<message-id> -m <message>", ArgType: "messages"},
 
 	// Escalation actions
-	"escalate ack": {Confirm: true, Desc: "Acknowledge escalation", Category: "Escalations", Args: "<escalation-id>", ArgType: "escalations"},
+	"escalate ack":      {Confirm: true, Desc: "Acknowledge escalation", Category: "Escalations", Args: "<escalation-id>", ArgType: "escalations"},
+	"escalate resolve":  {Confirm: true, Desc: "Resolve escalation", Category: "Escalations", Args: "<escalation-id>", ArgType: "escalations"},
+	"escalate reassign": {Confirm: true, Desc: "Reassign escalation", Category: "Escalations", Args: "<escalation-id> <agent>", ArgType: "escalations"},
 
 	// Convoy actions
 	"convoy create":  {Confirm: true, Desc: "Create convoy", Category: "Convoys", Args: "<name>"},
@@ -85,6 +88,17 @@ var AllowedCommands = map[string]CommandMeta{
 	"unsling":     {Confirm: true, Desc: "Unassign work from agent", Category: "Work", Args: "<bead>", ArgType: "hooks"},
 	"hook attach": {Confirm: true, Desc: "Attach hook", Category: "Hooks", Args: "<bead>", ArgType: "hooks"},
 	"hook detach": {Confirm: true, Desc: "Detach hook", Category: "Hooks", Args: "<bead>", ArgType: "hooks"},
+	"hook clear":  {Confirm: true, Desc: "Clear agent hook", Category: "Hooks", Args: "<agent>", ArgType: "agents"},
+	"hook show":   {Safe: true, Desc: "Show hook status", Category: "Hooks", Args: "<agent>", ArgType: "agents"},
+
+	// Merge queue read-only
+	"mq list":   {Safe: true, Desc: "Show merge queue", Category: "Merge Queue", Args: "<rig>", ArgType: "rigs"},
+	"mq status": {Safe: true, Desc: "Show MR status", Category: "Merge Queue", Args: "<mr-id>"},
+	"mq next":   {Safe: true, Desc: "Show next MR to process", Category: "Merge Queue", Args: "<rig>", ArgType: "rigs"},
+
+	// Merge queue actions
+	"mq retry":  {Confirm: true, Desc: "Retry failed MR", Category: "Merge Queue", Args: "<rig> <mr-id>", ArgType: "rigs"},
+	"mq reject": {Confirm: true, Desc: "Reject MR", Category: "Merge Queue", Args: "<rig> <mr-id> -r <reason>", ArgType: "rigs"},
 
 	// Notifications
 	"notify":    {Confirm: true, Desc: "Send notification", Category: "Notifications", Args: "<message>"},

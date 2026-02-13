@@ -2,6 +2,69 @@
     'use strict';
 
     // ============================================
+    // SSE (Server-Sent Events) CONNECTION
+    // ============================================
+    window.sseConnected = false;
+    var evtSource = null;
+    var sseReconnectDelay = 1000;
+    var sseMaxReconnectDelay = 30000;
+
+    function connectSSE() {
+        if (evtSource) {
+            evtSource.close();
+        }
+
+        evtSource = new EventSource('/api/events');
+
+        evtSource.addEventListener('connected', function() {
+            window.sseConnected = true;
+            sseReconnectDelay = 1000;
+            updateConnectionStatus('live');
+        });
+
+        evtSource.addEventListener('dashboard-update', function(e) {
+            if (window.pauseRefresh) return;
+            // Trigger HTMX to re-fetch the dashboard
+            var dashboard = document.getElementById('dashboard-main');
+            if (dashboard && typeof htmx !== 'undefined') {
+                htmx.trigger(dashboard, 'sse:dashboard-update');
+            }
+        });
+
+        evtSource.onerror = function() {
+            window.sseConnected = false;
+            updateConnectionStatus('reconnecting');
+            evtSource.close();
+            // Exponential backoff reconnect
+            setTimeout(function() {
+                sseReconnectDelay = Math.min(sseReconnectDelay * 2, sseMaxReconnectDelay);
+                connectSSE();
+            }, sseReconnectDelay);
+        };
+    }
+
+    function updateConnectionStatus(state) {
+        var el = document.getElementById('connection-status');
+        if (!el) return;
+        switch (state) {
+            case 'live':
+                el.textContent = 'Live';
+                el.className = 'connection-live';
+                break;
+            case 'reconnecting':
+                el.textContent = 'Reconnecting...';
+                el.className = 'connection-reconnecting';
+                break;
+            default:
+                el.textContent = 'Connecting...';
+                el.className = '';
+        }
+    }
+
+    // Start SSE connection
+    connectSSE();
+
+    // ============================================
     // EXPAND BUTTON HANDLER
     // ============================================
     document.addEventListener('click', function(e) {
@@ -30,6 +93,20 @@
         }
     });
 
+    // ============================================
+    // COLLAPSE BUTTON HANDLER
+    // ============================================
+    document.addEventListener('click', function(e) {
+        var btn = e.target.closest('.collapse-btn');
+        if (!btn) return;
+
+        e.preventDefault();
+        var panel = btn.closest('.panel');
+        if (!panel) return;
+
+        panel.classList.toggle('collapsed');
+    });
+
     // After HTMX swap - morph preserves most state, but we need to re-init some things
     document.body.addEventListener('htmx:afterSwap', function() {
         // Morph preserves expanded class, so we don't need to close panels anymore
@@ -39,16 +116,22 @@
         var mailCompose = document.getElementById('mail-compose');
         var issueDetail = document.getElementById('issue-detail');
         var prDetail = document.getElementById('pr-detail');
+        var rigDetailEl = document.getElementById('rig-detail');
+        var sessionPreview = document.getElementById('session-preview');
         var inDetailView = (mailDetail && mailDetail.style.display !== 'none') ||
                           (mailCompose && mailCompose.style.display !== 'none') ||
                           (issueDetail && issueDetail.style.display !== 'none') ||
-                          (prDetail && prDetail.style.display !== 'none');
+                          (prDetail && prDetail.style.display !== 'none') ||
+                          (rigDetailEl && rigDetailEl.style.display !== 'none') ||
+                          (sessionPreview && sessionPreview.style.display !== 'none');
         if (!inDetailView && !hasExpanded) {
             window.pauseRefresh = false;
         }
         // Reload dynamic panels after swap (handled via window functions)
         if (window.refreshCrewPanel) window.refreshCrewPanel();
         if (window.refreshReadyPanel) window.refreshReadyPanel();
+        // Update connection status indicator after morph
+        updateConnectionStatus(window.sseConnected ? 'live' : 'reconnecting');
     });
 
     // ============================================
@@ -61,6 +144,108 @@
     var executionLock = false;
     var pendingCommand = null; // Command waiting for args
     var cachedOptions = null;  // Cached options from /api/options
+    var recentCommands = [];   // Recently executed commands (from localStorage)
+    var MAX_RECENT = 10;
+    var RECENT_STORAGE_KEY = 'gt-palette-recent';
+
+    // Load recent commands from localStorage
+    function loadRecentCommands() {
+        try {
+            var stored = localStorage.getItem(RECENT_STORAGE_KEY);
+            if (stored) {
+                recentCommands = JSON.parse(stored);
+                if (!Array.isArray(recentCommands)) recentCommands = [];
+                // Cap at MAX_RECENT
+                recentCommands = recentCommands.slice(0, MAX_RECENT);
+            }
+        } catch (e) {
+            recentCommands = [];
+        }
+    }
+
+    // Save a command to recent history
+    function saveRecentCommand(cmdName) {
+        // Remove duplicate if exists
+        recentCommands = recentCommands.filter(function(c) { return c !== cmdName; });
+        // Add to front
+        recentCommands.unshift(cmdName);
+        // Cap at MAX_RECENT
+        recentCommands = recentCommands.slice(0, MAX_RECENT);
+        try {
+            localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(recentCommands));
+        } catch (e) {
+            // localStorage full or unavailable, ignore
+        }
+    }
+
+    // Detect active context based on expanded panel or visible detail view
+    function detectActiveContext() {
+        var expandedPanel = document.querySelector('.panel.expanded');
+        if (expandedPanel) {
+            var panelId = expandedPanel.id || '';
+            if (panelId.indexOf('mail') !== -1) return 'Mail';
+            if (panelId.indexOf('crew') !== -1) return 'Crew';
+            if (panelId.indexOf('issue') !== -1 || panelId.indexOf('work') !== -1) return 'Work';
+            if (panelId.indexOf('ready') !== -1) return 'Work';
+            if (panelId.indexOf('pr') !== -1 || panelId.indexOf('merge') !== -1) return 'Status';
+        }
+        // Check detail views
+        var mailDetail = document.getElementById('mail-detail');
+        var mailCompose = document.getElementById('mail-compose');
+        if ((mailDetail && mailDetail.style.display !== 'none') ||
+            (mailCompose && mailCompose.style.display !== 'none')) return 'Mail';
+        var issueDetail = document.getElementById('issue-detail');
+        if (issueDetail && issueDetail.style.display !== 'none') return 'Work';
+        var prDetail = document.getElementById('pr-detail');
+        if (prDetail && prDetail.style.display !== 'none') return 'Status';
+        return null;
+    }
+
+    // Score a command for fuzzy matching. Returns -1 for no match, higher is better.
+    function scoreCommand(cmd, query) {
+        var name = cmd.name.toLowerCase();
+        var desc = cmd.desc.toLowerCase();
+        var cat = cmd.category.toLowerCase();
+        var q = query.toLowerCase();
+
+        // Exact prefix match on name is best
+        if (name.indexOf(q) === 0) return 100 + (50 - name.length);
+        // Prefix match on a word within the name
+        var nameParts = name.split(' ');
+        for (var i = 0; i < nameParts.length; i++) {
+            if (nameParts[i].indexOf(q) === 0) return 80 + (50 - name.length);
+        }
+        // Substring match in name
+        if (name.indexOf(q) !== -1) return 60 + (50 - name.length);
+        // Match in description
+        if (desc.indexOf(q) !== -1) return 40;
+        // Match in category
+        if (cat.indexOf(q) !== -1) return 20;
+        // Fuzzy: all query chars appear in order in name
+        var ni = 0;
+        for (var qi = 0; qi < q.length; qi++) {
+            ni = name.indexOf(q[qi], ni);
+            if (ni === -1) return -1;
+            ni++;
+        }
+        return 10;
+    }
+
+    // Highlight matching portions in text for display
+    function highlightMatch(text, query) {
+        if (!query) return escapeHtml(text);
+        var lowerText = text.toLowerCase();
+        var lowerQuery = query.toLowerCase();
+        var idx = lowerText.indexOf(lowerQuery);
+        if (idx !== -1) {
+            return escapeHtml(text.substring(0, idx)) +
+                '<mark>' + escapeHtml(text.substring(idx, idx + query.length)) + '</mark>' +
+                escapeHtml(text.substring(idx + query.length));
+        }
+        return escapeHtml(text);
+    }
+
+    loadRecentCommands();
 
     var overlay = document.getElementById('command-palette-overlay');
     var searchInput = document.getElementById('command-palette-input');
@@ -260,18 +445,50 @@
             resultsDiv.innerHTML = '<div class="command-palette-empty">No matching commands</div>';
             return;
         }
+        var currentQuery = searchInput ? searchInput.value.trim() : '';
         var html = '';
-        for (var i = 0; i < visibleCommands.length; i++) {
-            var cmd = visibleCommands[i];
-            var cls = 'command-item' + (i === selectedIdx ? ' selected' : '');
-            var argsHint = cmd.args ? ' <span class="command-args">' + escapeHtml(cmd.args) + '</span>' : '';
-            html += '<div class="' + cls + '" data-cmd-name="' + escapeHtml(cmd.name) + '" data-cmd-args="' + escapeHtml(cmd.args || '') + '">' +
-                '<span class="command-name">gt ' + escapeHtml(cmd.name) + argsHint + '</span>' +
-                '<span class="command-desc">' + escapeHtml(cmd.desc) + '</span>' +
-                '<span class="command-category">' + escapeHtml(cmd.category) + '</span>' +
-                '</div>';
+
+        if (currentQuery) {
+            // Search mode: flat list with highlights
+            for (var i = 0; i < visibleCommands.length; i++) {
+                var cmd = visibleCommands[i];
+                var cls = 'command-item' + (i === selectedIdx ? ' selected' : '');
+                var argsHint = cmd.args ? ' <span class="command-args">' + escapeHtml(cmd.args) + '</span>' : '';
+                var nameHtml = highlightMatch('gt ' + cmd.name, currentQuery);
+                html += '<div class="' + cls + '" data-cmd-name="' + escapeHtml(cmd.name) + '" data-cmd-args="' + escapeHtml(cmd.args || '') + '">' +
+                    '<span class="command-name">' + nameHtml + argsHint + '</span>' +
+                    '<span class="command-desc">' + escapeHtml(cmd.desc) + '</span>' +
+                    '<span class="command-category">' + escapeHtml(cmd.category) + '</span>' +
+                    '</div>';
+            }
+        } else {
+            // Browse mode: show Recent, Contextual, then All Commands
+            // visibleCommands was rebuilt by filterCommands with sections baked in
+            for (var j = 0; j < visibleCommands.length; j++) {
+                var item = visibleCommands[j];
+                if (item._section) {
+                    // Section header
+                    html += '<div class="command-section-header">' + escapeHtml(item._section) + '</div>';
+                    continue;
+                }
+                var cls2 = 'command-item' + (j === selectedIdx ? ' selected' : '');
+                var argsHint2 = item.args ? ' <span class="command-args">' + escapeHtml(item.args) + '</span>' : '';
+                var icon = item._recent ? '<span class="command-recent-icon">&#8635;</span>' : '';
+                html += '<div class="' + cls2 + '" data-cmd-name="' + escapeHtml(item.name) + '" data-cmd-args="' + escapeHtml(item.args || '') + '">' +
+                    icon +
+                    '<span class="command-name">gt ' + escapeHtml(item.name) + argsHint2 + '</span>' +
+                    '<span class="command-desc">' + escapeHtml(item.desc) + '</span>' +
+                    '<span class="command-category">' + escapeHtml(item.category) + '</span>' +
+                    '</div>';
+            }
         }
         resultsDiv.innerHTML = html;
+
+        // Scroll selected item into view
+        var selectedEl = resultsDiv.querySelector('.command-item.selected');
+        if (selectedEl) {
+            selectedEl.scrollIntoView({ block: 'nearest' });
+        }
     }
 
     function runWithArgsFromForm(fieldCount) {
@@ -310,17 +527,68 @@
     }
 
     function filterCommands(query) {
-        query = (query || '').toLowerCase();
+        query = (query || '').trim();
         if (!query) {
-            visibleCommands = allCommands.slice();
+            // Build sectioned list: Recent, Contextual, All Commands
+            visibleCommands = [];
+            var shownNames = {};
+
+            // Recent section
+            var recentItems = [];
+            for (var ri = 0; ri < recentCommands.length; ri++) {
+                var recentCmd = allCommands.find(function(c) { return c.name === recentCommands[ri]; });
+                if (recentCmd) recentItems.push(recentCmd);
+            }
+            if (recentItems.length > 0) {
+                visibleCommands.push({ _section: 'Recent' });
+                for (var ri2 = 0; ri2 < recentItems.length; ri2++) {
+                    var rcmd = Object.assign({}, recentItems[ri2], { _recent: true });
+                    visibleCommands.push(rcmd);
+                    shownNames[rcmd.name] = true;
+                }
+            }
+
+            // Contextual section
+            var context = detectActiveContext();
+            if (context) {
+                var contextItems = allCommands.filter(function(c) {
+                    return c.category === context && !shownNames[c.name];
+                });
+                if (contextItems.length > 0) {
+                    visibleCommands.push({ _section: 'Suggested \u2014 ' + context });
+                    for (var ci = 0; ci < contextItems.length; ci++) {
+                        visibleCommands.push(contextItems[ci]);
+                        shownNames[contextItems[ci].name] = true;
+                    }
+                }
+            }
+
+            // All commands section (remaining)
+            var remaining = allCommands.filter(function(c) { return !shownNames[c.name]; });
+            remaining.sort(function(a, b) { return a.name.localeCompare(b.name); });
+            if (remaining.length > 0) {
+                visibleCommands.push({ _section: 'All Commands' });
+                for (var ai = 0; ai < remaining.length; ai++) {
+                    visibleCommands.push(remaining[ai]);
+                }
+            }
         } else {
-            visibleCommands = allCommands.filter(function(cmd) {
-                return cmd.name.toLowerCase().indexOf(query) !== -1 ||
-                       cmd.desc.toLowerCase().indexOf(query) !== -1 ||
-                       cmd.category.toLowerCase().indexOf(query) !== -1;
-            });
+            // Score and sort by relevance
+            var scored = [];
+            for (var i = 0; i < allCommands.length; i++) {
+                var s = scoreCommand(allCommands[i], query);
+                if (s > 0) {
+                    scored.push({ cmd: allCommands[i], score: s });
+                }
+            }
+            scored.sort(function(a, b) { return b.score - a.score; });
+            visibleCommands = scored.map(function(item) { return item.cmd; });
         }
         selectedIdx = 0;
+        // In browse mode, skip section headers for initial selection
+        while (selectedIdx < visibleCommands.length && visibleCommands[selectedIdx]._section) {
+            selectedIdx++;
+        }
         renderResults();
     }
 
@@ -389,6 +657,12 @@
 
         // Close palette FIRST before anything else
         closePalette();
+
+        // Save to recent commands history
+        // Extract base command name (without args) for history
+        var baseName = cmdName.split(' ').slice(0, 3).join(' ');
+        var matchedCmd = allCommands.find(function(c) { return cmdName.indexOf(c.name) === 0; });
+        saveRecentCommand(matchedCmd ? matchedCmd.name : baseName);
 
         executionLock = true;
         console.log('Running command:', cmdName);
@@ -502,7 +776,10 @@
         if (e.key === 'ArrowDown') {
             e.preventDefault();
             if (visibleCommands.length > 0) {
-                selectedIdx = Math.min(selectedIdx + 1, visibleCommands.length - 1);
+                var next = selectedIdx + 1;
+                // Skip section headers
+                while (next < visibleCommands.length && visibleCommands[next]._section) next++;
+                if (next < visibleCommands.length) selectedIdx = next;
                 renderResults();
             }
             return;
@@ -510,16 +787,19 @@
 
         if (e.key === 'ArrowUp') {
             e.preventDefault();
-            selectedIdx = Math.max(selectedIdx - 1, 0);
+            var prev = selectedIdx - 1;
+            // Skip section headers
+            while (prev >= 0 && visibleCommands[prev]._section) prev--;
+            if (prev >= 0) selectedIdx = prev;
             renderResults();
             return;
         }
 
         if (e.key === 'Enter') {
             e.preventDefault();
-            if (visibleCommands[selectedIdx]) {
-                var cmd = visibleCommands[selectedIdx];
-                selectCommand(cmd.name, cmd.args);
+            var selected = visibleCommands[selectedIdx];
+            if (selected && !selected._section) {
+                selectCommand(selected.name, selected.args);
             }
             return;
         }
@@ -569,41 +849,87 @@
         });
     });
 
-    // Load mail inbox on page load
+    // Load mail inbox as threaded conversations
     function loadMailInbox() {
         var loading = document.getElementById('mail-loading');
-        var table = document.getElementById('mail-table');
-        var tbody = document.getElementById('mail-tbody');
+        var threadsContainer = document.getElementById('mail-threads');
         var empty = document.getElementById('mail-empty');
         var count = document.getElementById('mail-count');
 
-        if (!loading || !table || !tbody) return;
+        if (!loading || !threadsContainer) return;
 
-        fetch('/api/mail/inbox')
+        fetch('/api/mail/threads')
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 loading.style.display = 'none';
 
-                if (data.messages && data.messages.length > 0) {
-                    table.style.display = 'table';
+                if (data.threads && data.threads.length > 0) {
+                    threadsContainer.style.display = 'block';
                     empty.style.display = 'none';
-                    tbody.innerHTML = '';
+                    threadsContainer.innerHTML = '';
 
-                    data.messages.forEach(function(msg) {
-                        var tr = document.createElement('tr');
-                        tr.className = 'mail-row' + (msg.read ? '' : ' mail-unread');
-                        tr.setAttribute('data-msg-id', msg.id);
-                        tr.setAttribute('data-from', msg.from);
+                    data.threads.forEach(function(thread) {
+                        var threadEl = document.createElement('div');
+                        threadEl.className = 'mail-thread' + (thread.unread_count > 0 ? ' mail-thread-unread' : '');
+
+                        var last = thread.last_message;
+                        var hasMultiple = thread.count > 1;
+                        var countBadge = hasMultiple ? '<span class="thread-count">' + thread.count + '</span>' : '';
+                        var unreadDot = thread.unread_count > 0 ? '<span class="thread-unread-dot"></span>' : '';
 
                         var priorityIcon = '';
-                        if (msg.priority === 'urgent') priorityIcon = '<span class="priority-urgent">⚡</span> ';
-                        else if (msg.priority === 'high') priorityIcon = '<span class="priority-high">!</span> ';
+                        if (last.priority === 'urgent') priorityIcon = '<span class="priority-urgent">⚡</span> ';
+                        else if (last.priority === 'high') priorityIcon = '<span class="priority-high">!</span> ';
 
-                        tr.innerHTML =
-                            '<td class="mail-from">' + escapeHtml(msg.from) + '</td>' +
-                            '<td>' + priorityIcon + '<span class="mail-subject">' + escapeHtml(msg.subject) + '</span></td>' +
-                            '<td class="mail-time">' + formatMailTime(msg.timestamp) + '</td>';
-                        tbody.appendChild(tr);
+                        // Thread header (always visible)
+                        var headerEl = document.createElement('div');
+                        headerEl.className = 'mail-thread-header';
+                        headerEl.setAttribute('data-thread-id', thread.thread_id);
+                        headerEl.innerHTML =
+                            '<div class="mail-thread-left">' +
+                                unreadDot +
+                                '<span class="mail-from">' + escapeHtml(last.from) + '</span>' +
+                                countBadge +
+                            '</div>' +
+                            '<div class="mail-thread-center">' +
+                                priorityIcon +
+                                '<span class="mail-subject">' + escapeHtml(thread.subject) + '</span>' +
+                                (hasMultiple ? '<span class="mail-thread-preview"> — ' + escapeHtml(last.body ? last.body.substring(0, 60) : '') + '</span>' : '') +
+                            '</div>' +
+                            '<div class="mail-thread-right">' +
+                                '<span class="mail-time">' + formatMailTime(last.timestamp) + '</span>' +
+                            '</div>';
+
+                        threadEl.appendChild(headerEl);
+
+                        // Thread messages (collapsed by default, only for multi-message threads)
+                        if (hasMultiple) {
+                            var msgsEl = document.createElement('div');
+                            msgsEl.className = 'mail-thread-messages';
+                            msgsEl.style.display = 'none';
+
+                            thread.messages.forEach(function(msg) {
+                                var msgEl = document.createElement('div');
+                                msgEl.className = 'mail-thread-msg' + (msg.read ? '' : ' mail-unread');
+                                msgEl.setAttribute('data-msg-id', msg.id);
+                                msgEl.setAttribute('data-from', msg.from);
+                                msgEl.innerHTML =
+                                    '<div class="mail-thread-msg-header">' +
+                                        '<span class="mail-from">' + escapeHtml(msg.from) + '</span>' +
+                                        '<span class="mail-time">' + formatMailTime(msg.timestamp) + '</span>' +
+                                    '</div>' +
+                                    '<div class="mail-thread-msg-subject">' + escapeHtml(msg.subject) + '</div>';
+                                msgsEl.appendChild(msgEl);
+                            });
+
+                            threadEl.appendChild(msgsEl);
+                        } else {
+                            // Single message thread - clicking opens the message directly
+                            headerEl.setAttribute('data-msg-id', last.id);
+                            headerEl.setAttribute('data-from', last.from);
+                        }
+
+                        threadsContainer.appendChild(threadEl);
                     });
 
                     // Update count
@@ -611,9 +937,10 @@
                         var unread = data.unread_count || 0;
                         count.textContent = unread > 0 ? unread + ' unread' : data.total;
                         if (unread > 0) count.classList.add('has-unread');
+                        else count.classList.remove('has-unread');
                     }
                 } else {
-                    table.style.display = 'none';
+                    threadsContainer.style.display = 'none';
                     empty.style.display = 'block';
                     if (count) count.textContent = '0';
                 }
@@ -829,6 +1156,74 @@
 
 
     // ============================================
+    // HOOK MANAGEMENT
+    // ============================================
+
+    // Handle detach/clear button clicks on hook rows
+    document.addEventListener('click', function(e) {
+        var btn = e.target.closest('.hook-action-btn');
+        if (!btn) return;
+        e.preventDefault();
+
+        var beadId = btn.getAttribute('data-hook-id');
+        var agent = btn.getAttribute('data-hook-agent');
+        if (!beadId) return;
+
+        var action, cmd, confirmMsg;
+        if (btn.classList.contains('hook-detach-btn')) {
+            action = 'detach';
+            cmd = 'hook detach ' + beadId;
+            confirmMsg = 'Detach hook ' + beadId + '?';
+        } else if (btn.classList.contains('hook-clear-btn')) {
+            action = 'clear';
+            cmd = 'hook clear ' + (agent || beadId);
+            confirmMsg = 'Clear hook for ' + (agent || beadId) + '?';
+        }
+        if (!cmd) return;
+
+        if (!confirm(confirmMsg)) return;
+
+        btn.disabled = true;
+        btn.textContent = '...';
+
+        fetch('/api/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command: cmd })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                showToast('success', 'Done', 'gt ' + cmd);
+                // Trigger HTMX refresh
+                var dashboard = document.getElementById('dashboard-main');
+                if (dashboard && typeof htmx !== 'undefined') {
+                    htmx.trigger(dashboard, 'htmx:load');
+                }
+            } else {
+                showToast('error', 'Failed', data.error || 'Unknown error');
+                btn.disabled = false;
+                btn.textContent = action === 'clear' ? 'Clear' : 'Detach';
+            }
+        })
+        .catch(function(err) {
+            showToast('error', 'Error', err.message || 'Request failed');
+            btn.disabled = false;
+            btn.textContent = action === 'clear' ? 'Clear' : 'Detach';
+        });
+    });
+
+    // Open hook attach via command palette pre-filled
+    function openHookAttach() {
+        openPalette();
+        if (searchInput) {
+            searchInput.value = 'hook attach';
+            filterCommands('hook attach');
+        }
+    }
+    window.openHookAttach = openHookAttach;
+
+    // ============================================
     // ISSUE CREATION MODAL
     // ============================================
     function openIssueModal() {
@@ -1025,8 +1420,43 @@
     // Expose for refresh after HTMX swaps
     window.refreshReadyPanel = loadReady;
 
-    // Click on mail row to read message
+    // Click on mail thread header - toggle expand or open single message
     document.addEventListener('click', function(e) {
+        // Handle click on individual message within expanded thread
+        var threadMsg = e.target.closest('.mail-thread-msg');
+        if (threadMsg) {
+            e.preventDefault();
+            var msgId = threadMsg.getAttribute('data-msg-id');
+            var from = threadMsg.getAttribute('data-from');
+            if (msgId) {
+                openMailDetail(msgId, from);
+            }
+            return;
+        }
+
+        // Handle click on thread header
+        var threadHeader = e.target.closest('.mail-thread-header');
+        if (threadHeader) {
+            e.preventDefault();
+            var msgId = threadHeader.getAttribute('data-msg-id');
+            if (msgId) {
+                // Single message thread - open directly
+                var from = threadHeader.getAttribute('data-from');
+                openMailDetail(msgId, from);
+            } else {
+                // Multi-message thread - toggle expand/collapse
+                var threadEl = threadHeader.closest('.mail-thread');
+                var msgsEl = threadEl ? threadEl.querySelector('.mail-thread-messages') : null;
+                if (msgsEl) {
+                    var isExpanded = msgsEl.style.display !== 'none';
+                    msgsEl.style.display = isExpanded ? 'none' : 'block';
+                    threadEl.classList.toggle('mail-thread-expanded', !isExpanded);
+                }
+            }
+            return;
+        }
+
+        // Legacy: handle click on mail-row (All Traffic tab)
         var mailRow = e.target.closest('.mail-row');
         if (mailRow) {
             e.preventDefault();
@@ -1523,6 +1953,806 @@
             // Resume HTMX refresh
             window.pauseRefresh = false;
         });
+    }
+
+    // ============================================
+    // MERGE QUEUE ACTIONS
+    // ============================================
+
+    // Run a merge queue action (approve, reject, retry)
+    function runMQAction(action, prUrl, prRepo, prNumber, reason) {
+        var payload = {
+            action: action,
+            url: prUrl,
+            repo: prRepo || '',
+            number: parseInt(prNumber, 10) || 0
+        };
+        if (reason) {
+            payload.reason = reason;
+        }
+
+        showToast('info', 'Running...', action + ' #' + prNumber);
+
+        return fetch('/api/mq/action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                showToast('success', data.message || 'Success', '#' + prNumber + ' ' + action);
+                if (data.output && data.output.trim()) {
+                    showOutput('mq ' + action, data.output);
+                }
+            } else {
+                showToast('error', 'Failed', data.error || 'Unknown error');
+                if (data.output) {
+                    showOutput('mq ' + action, data.output);
+                }
+            }
+            return data;
+        })
+        .catch(function(err) {
+            showToast('error', 'Error', err.message || 'Request failed');
+        });
+    }
+
+    // Inline action buttons on merge queue rows
+    document.addEventListener('click', function(e) {
+        var btn = e.target.closest('.mq-action-btn');
+        if (!btn) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        var action = '';
+        if (btn.classList.contains('mq-approve-btn')) action = 'approve';
+        else if (btn.classList.contains('mq-reject-btn')) action = 'reject';
+        else if (btn.classList.contains('mq-retry-btn')) action = 'retry';
+        if (!action) return;
+
+        var prUrl = btn.getAttribute('data-pr-url');
+        var prRepo = btn.getAttribute('data-pr-repo');
+        var prNumber = btn.getAttribute('data-pr-number');
+
+        if (action === 'reject') {
+            var reason = prompt('Reason for closing PR #' + prNumber + ':');
+            if (reason === null) return; // Cancelled
+            runMQAction(action, prUrl, prRepo, prNumber, reason);
+        } else {
+            runMQAction(action, prUrl, prRepo, prNumber);
+        }
+    });
+
+    // PR detail view action buttons
+    var prActionApprove = document.getElementById('pr-action-approve');
+    var prActionReject = document.getElementById('pr-action-reject');
+    var prActionRetry = document.getElementById('pr-action-retry');
+
+    if (prActionApprove) {
+        prActionApprove.addEventListener('click', function() {
+            if (!currentPrUrl) return;
+            var row = document.querySelector('.pr-row[data-pr-url="' + currentPrUrl + '"]');
+            var prRepo = row ? row.getAttribute('data-pr-repo') : '';
+            var prNumber = row ? row.getAttribute('data-pr-number') : '';
+            runMQAction('approve', currentPrUrl, prRepo, prNumber);
+        });
+    }
+
+    if (prActionReject) {
+        prActionReject.addEventListener('click', function() {
+            if (!currentPrUrl) return;
+            var row = document.querySelector('.pr-row[data-pr-url="' + currentPrUrl + '"]');
+            var prRepo = row ? row.getAttribute('data-pr-repo') : '';
+            var prNumber = row ? row.getAttribute('data-pr-number') : '';
+            var reason = prompt('Reason for closing PR #' + prNumber + ':');
+            if (reason === null) return;
+            runMQAction('reject', currentPrUrl, prRepo, prNumber, reason);
+        });
+    }
+
+    if (prActionRetry) {
+        prActionRetry.addEventListener('click', function() {
+            if (!currentPrUrl) return;
+            var row = document.querySelector('.pr-row[data-pr-url="' + currentPrUrl + '"]');
+            var prRepo = row ? row.getAttribute('data-pr-repo') : '';
+            var prNumber = row ? row.getAttribute('data-pr-number') : '';
+            runMQAction('retry', currentPrUrl, prRepo, prNumber);
+        });
+    }
+
+    // ============================================
+    // ESCALATION ACTIONS
+    // ============================================
+    document.addEventListener('click', function(e) {
+        var btn = e.target.closest('.esc-btn');
+        if (!btn) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        var action = btn.getAttribute('data-action');
+        var id = btn.getAttribute('data-id');
+        if (!action || !id) return;
+
+        if (action === 'reassign') {
+            showReassignPicker(btn, id);
+            return;
+        }
+
+        // Ack or Resolve - run directly
+        var cmdName = 'escalate ' + action + ' ' + id;
+        btn.disabled = true;
+        btn.textContent = action === 'ack' ? 'Acking...' : 'Resolving...';
+
+        runEscalationAction(cmdName, btn, action);
+    });
+
+    function runEscalationAction(cmdName, btn, action) {
+        showToast('info', 'Running...', 'gt ' + cmdName);
+
+        fetch('/api/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command: cmdName })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                showToast('success', 'Success', 'gt ' + cmdName);
+                // Remove ack button or fade row on resolve
+                var row = btn.closest('.escalation-row');
+                if (action === 'resolve' && row) {
+                    row.style.opacity = '0.4';
+                    row.style.pointerEvents = 'none';
+                } else if (action === 'ack' && row) {
+                    // Replace ack button with ACK badge
+                    btn.outerHTML = '<span class="badge badge-cyan">ACK</span>';
+                }
+            } else {
+                showToast('error', 'Failed', data.error || 'Unknown error');
+                btn.disabled = false;
+                btn.textContent = action === 'ack' ? '👍 Ack' : '✓ Resolve';
+            }
+        })
+        .catch(function(err) {
+            showToast('error', 'Error', err.message || 'Request failed');
+            btn.disabled = false;
+            btn.textContent = action === 'ack' ? '👍 Ack' : '✓ Resolve';
+        });
+    }
+
+    function showReassignPicker(btn, escalationId) {
+        // Check if picker already open
+        var existing = btn.parentNode.querySelector('.reassign-picker');
+        if (existing) {
+            existing.remove();
+            return;
+        }
+
+        var picker = document.createElement('div');
+        picker.className = 'reassign-picker';
+        picker.innerHTML = '<select class="reassign-select"><option value="">Loading...</option></select>' +
+            '<button class="esc-btn esc-reassign-confirm">Go</button>' +
+            '<button class="esc-btn esc-reassign-cancel">✕</button>';
+        btn.parentNode.appendChild(picker);
+
+        var select = picker.querySelector('.reassign-select');
+
+        // Pause refresh while picker is open
+        window.pauseRefresh = true;
+
+        // Load agents
+        fetch('/api/options')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                select.innerHTML = '<option value="">Select agent...</option>';
+                var agents = data.agents || [];
+                agents.forEach(function(agent) {
+                    var name = typeof agent === 'string' ? agent : agent.name;
+                    var running = typeof agent === 'object' ? agent.running : true;
+                    var opt = document.createElement('option');
+                    opt.value = name;
+                    opt.textContent = name + (running ? '' : ' (stopped)');
+                    select.appendChild(opt);
+                });
+            })
+            .catch(function() {
+                select.innerHTML = '<option value="">Failed to load</option>';
+            });
+
+        // Confirm reassign
+        picker.querySelector('.esc-reassign-confirm').addEventListener('click', function() {
+            var agent = select.value;
+            if (!agent) {
+                showToast('error', 'Missing', 'Select an agent to reassign to');
+                return;
+            }
+            picker.remove();
+            window.pauseRefresh = false;
+
+            var cmdName = 'escalate reassign ' + escalationId + ' ' + agent;
+            btn.disabled = true;
+            btn.textContent = 'Reassigning...';
+
+            showToast('info', 'Running...', 'gt ' + cmdName);
+
+            fetch('/api/run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: cmdName })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    showToast('success', 'Reassigned', 'Escalation reassigned to ' + agent);
+                    var row = btn.closest('.escalation-row');
+                    if (row) {
+                        // Update the "From" cell to show new assignee
+                        var fromCell = row.querySelectorAll('td')[2];
+                        if (fromCell) fromCell.textContent = '→ ' + agent;
+                    }
+                } else {
+                    showToast('error', 'Failed', data.error || 'Unknown error');
+                }
+                btn.disabled = false;
+                btn.textContent = '↻ Reassign';
+            })
+            .catch(function(err) {
+                showToast('error', 'Error', err.message || 'Request failed');
+                btn.disabled = false;
+                btn.textContent = '↻ Reassign';
+            });
+        });
+
+        // Cancel
+        picker.querySelector('.esc-reassign-cancel').addEventListener('click', function() {
+            picker.remove();
+            window.pauseRefresh = false;
+        });
+    }
+
+    // ============================================
+    // RIG DETAIL PANEL
+    // ============================================
+    var rigList = document.getElementById('rig-list');
+    var rigDetail = document.getElementById('rig-detail');
+    var currentRigName = null;
+
+    // Click on rig row to view details
+    document.addEventListener('click', function(e) {
+        var rigRow = e.target.closest('.rig-row');
+        if (rigRow && rigRow.hasAttribute('data-rig-name')) {
+            e.preventDefault();
+            var rigName = rigRow.getAttribute('data-rig-name');
+            if (rigName) {
+                openRigDetail(rigName);
+            }
+        }
+    });
+
+    // ============================================
+    // SESSION TERMINAL PREVIEW
+    // ============================================
+    var sessionPreviewInterval = null;
+    var sessionsTable = null; // will be set when opening preview
+
+    // Click on session row to preview terminal output
+    document.addEventListener('click', function(e) {
+        var sessionRow = e.target.closest('.session-row');
+        if (sessionRow) {
+            e.preventDefault();
+            var sessionName = sessionRow.getAttribute('data-session-name');
+            if (sessionName) {
+                openSessionPreview(sessionName);
+            }
+        }
+    });
+
+    function openRigDetail(rigName) {
+        currentRigName = rigName;
+
+        // Pause HTMX refresh while viewing rig
+        window.pauseRefresh = true;
+
+        // Show loading state
+        document.getElementById('rig-detail-name').textContent = rigName;
+        document.getElementById('rig-detail-url').textContent = 'Loading...';
+        document.getElementById('rig-detail-stats').innerHTML = '';
+        document.getElementById('rig-detail-health').innerHTML = '';
+        document.getElementById('rig-detail-agents').innerHTML = '<tr><td colspan="6">Loading agents...</td></tr>';
+        document.getElementById('rig-detail-hooks-section').style.display = 'none';
+
+        // Show detail view
+        if (rigList) rigList.style.display = 'none';
+        if (rigDetail) rigDetail.style.display = 'block';
+
+        // Fetch rig details
+        fetch('/api/rig/detail?name=' + encodeURIComponent(rigName))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error) {
+                    document.getElementById('rig-detail-url').textContent = 'Error: ' + data.error;
+                    document.getElementById('rig-detail-agents').innerHTML = '';
+                    return;
+                }
+
+                // Name and URL
+                document.getElementById('rig-detail-name').textContent = data.name || rigName;
+                document.getElementById('rig-detail-url').textContent = data.git_url || '';
+
+                // Agent counts
+                var counts = data.agent_counts || {};
+                var statsHtml = '';
+                if (counts.polecats) statsHtml += '<span class="rig-stat"><span class="rig-stat-value">' + counts.polecats + '</span><span class="rig-stat-label">Polecats</span></span>';
+                if (counts.crew) statsHtml += '<span class="rig-stat"><span class="rig-stat-value">' + counts.crew + '</span><span class="rig-stat-label">Crew</span></span>';
+                if (counts.witness) statsHtml += '<span class="rig-stat"><span class="rig-stat-value">' + counts.witness + '</span><span class="rig-stat-label">Witness</span></span>';
+                if (counts.refinery) statsHtml += '<span class="rig-stat"><span class="rig-stat-value">' + counts.refinery + '</span><span class="rig-stat-label">Refinery</span></span>';
+                statsHtml += '<span class="rig-stat rig-stat-total"><span class="rig-stat-value">' + (counts.total || 0) + '</span><span class="rig-stat-label">Total</span></span>';
+                document.getElementById('rig-detail-stats').innerHTML = statsHtml;
+
+                // Health indicators
+                var health = data.health || {};
+                var healthHtml = '';
+                if (health.working_agents) healthHtml += '<span class="rig-health-item rig-health-green">' + health.working_agents + ' working</span>';
+                if (health.stale_agents) healthHtml += '<span class="rig-health-item rig-health-yellow">' + health.stale_agents + ' stale</span>';
+                if (health.stuck_agents) healthHtml += '<span class="rig-health-item rig-health-red">' + health.stuck_agents + ' stuck</span>';
+                if (health.idle_agents) healthHtml += '<span class="rig-health-item rig-health-muted">' + health.idle_agents + ' idle</span>';
+                if (!healthHtml) healthHtml = '<span class="rig-health-item rig-health-muted">No agents</span>';
+                document.getElementById('rig-detail-health').innerHTML = healthHtml;
+
+                // Agents table
+                var agents = data.agents || [];
+                var agentsTbody = document.getElementById('rig-detail-agents');
+                if (agents.length > 0) {
+                    agentsTbody.innerHTML = '';
+                    agents.forEach(function(agent) {
+                        var tr = document.createElement('tr');
+
+                        var statusBadge = '';
+                        switch (agent.status) {
+                            case 'working':
+                                statusBadge = '<span class="badge badge-green">Working</span>';
+                                break;
+                            case 'stale':
+                                statusBadge = '<span class="badge badge-yellow">Stale</span>';
+                                break;
+                            case 'stuck':
+                                statusBadge = '<span class="badge badge-red">Stuck</span>';
+                                break;
+                            case 'none':
+                                statusBadge = '<span class="badge badge-muted">No Session</span>';
+                                break;
+                            default:
+                                statusBadge = '<span class="badge badge-muted">Idle</span>';
+                        }
+
+                        var roleBadge = '';
+                        switch (agent.role) {
+                            case 'polecat':
+                                roleBadge = '<span class="badge badge-muted">polecat</span>';
+                                break;
+                            case 'crew':
+                                roleBadge = '<span class="badge badge-purple">crew</span>';
+                                break;
+                            case 'witness':
+                                roleBadge = '<span class="badge badge-cyan">witness</span>';
+                                break;
+                            case 'refinery':
+                                roleBadge = '<span class="badge badge-blue">refinery</span>';
+                                break;
+                            default:
+                                roleBadge = '<span class="badge badge-muted">' + escapeHtml(agent.role) + '</span>';
+                        }
+
+                        var hookCell = '—';
+                        if (agent.hook) {
+                            hookCell = '<span class="issue-id">' + escapeHtml(agent.hook) + '</span>';
+                            if (agent.hook_title) {
+                                hookCell += ' <span class="issue-title">' + escapeHtml(agent.hook_title) + '</span>';
+                            }
+                        }
+
+                        var sessionBadge = '';
+                        switch (agent.session) {
+                            case 'attached':
+                                sessionBadge = '<span class="badge badge-green">Attached</span>';
+                                break;
+                            case 'detached':
+                                sessionBadge = '<span class="badge badge-muted">Detached</span>';
+                                break;
+                            default:
+                                sessionBadge = '<span class="badge badge-muted">None</span>';
+                        }
+
+                        tr.innerHTML =
+                            '<td><span class="polecat-name">' + escapeHtml(agent.name) + '</span></td>' +
+                            '<td>' + roleBadge + '</td>' +
+                            '<td>' + statusBadge + '</td>' +
+                            '<td class="polecat-issue">' + hookCell + '</td>' +
+                            '<td>' + escapeHtml(agent.last_active || '—') + '</td>' +
+                            '<td>' + sessionBadge + '</td>';
+                        agentsTbody.appendChild(tr);
+                    });
+                } else {
+                    agentsTbody.innerHTML = '<tr><td colspan="6" class="empty-state">No agents found</td></tr>';
+                }
+
+                // Hooks section
+                var hooks = data.hooks || [];
+                if (hooks.length > 0) {
+                    document.getElementById('rig-detail-hooks-section').style.display = 'block';
+                    var hooksHtml = '<table><thead><tr><th>Bead</th><th>Agent</th><th>Title</th></tr></thead><tbody>';
+                    hooks.forEach(function(hook) {
+                        hooksHtml += '<tr>' +
+                            '<td><span class="hook-id">' + escapeHtml(hook.id || hook.ID || '') + '</span></td>' +
+                            '<td>' + escapeHtml(hook.assignee || hook.Assignee || '') + '</td>' +
+                            '<td>' + escapeHtml(hook.title || hook.Title || '') + '</td>' +
+                            '</tr>';
+                    });
+                    hooksHtml += '</tbody></table>';
+                    document.getElementById('rig-detail-hooks').innerHTML = hooksHtml;
+                }
+            })
+            .catch(function(err) {
+                document.getElementById('rig-detail-url').textContent = 'Error loading rig details';
+                document.getElementById('rig-detail-agents').innerHTML =
+                    '<tr><td colspan="6">Failed: ' + escapeHtml(err.message) + '</td></tr>';
+            });
+    }
+
+    // Back button from rig detail
+    var rigBackBtn = document.getElementById('rig-back-btn');
+    if (rigBackBtn) {
+        rigBackBtn.addEventListener('click', function() {
+            if (rigDetail) rigDetail.style.display = 'none';
+            if (rigList) rigList.style.display = 'block';
+            currentRigName = null;
+            // Resume HTMX refresh
+            window.pauseRefresh = false;
+        });
+    }
+
+    // ============================================
+    // ACTIVITY TIMELINE FILTERS
+    // ============================================
+
+    function initTimelineFilters() {
+        var timeline = document.getElementById('activity-timeline');
+        if (!timeline) return;
+
+        var entries = timeline.querySelectorAll('.tl-entry');
+        var rigFilter = document.getElementById('tl-rig-filter');
+        var agentFilter = document.getElementById('tl-agent-filter');
+        var emptyMsg = document.getElementById('tl-empty-filtered');
+
+        // Collect unique rigs and agents for dropdowns
+        var rigs = {};
+        var agents = {};
+        entries.forEach(function(entry) {
+            var rig = entry.getAttribute('data-rig');
+            var agent = entry.getAttribute('data-agent');
+            if (rig) rigs[rig] = true;
+            if (agent) agents[agent] = true;
+        });
+
+        // Populate rig dropdown
+        if (rigFilter) {
+            Object.keys(rigs).sort().forEach(function(rig) {
+                var opt = document.createElement('option');
+                opt.value = rig;
+                opt.textContent = rig;
+                rigFilter.appendChild(opt);
+            });
+        }
+
+        // Populate agent dropdown
+        if (agentFilter) {
+            Object.keys(agents).sort().forEach(function(agent) {
+                var opt = document.createElement('option');
+                opt.value = agent;
+                opt.textContent = agent;
+                agentFilter.appendChild(opt);
+            });
+        }
+
+        // Current filter state
+        var activeCategory = 'all';
+
+        function applyFilters() {
+            var selectedRig = rigFilter ? rigFilter.value : 'all';
+            var selectedAgent = agentFilter ? agentFilter.value : 'all';
+            var visibleCount = 0;
+
+            entries.forEach(function(entry) {
+                var show = true;
+
+                if (activeCategory !== 'all' && entry.getAttribute('data-category') !== activeCategory) {
+                    show = false;
+                }
+                if (selectedRig !== 'all' && entry.getAttribute('data-rig') !== selectedRig) {
+                    show = false;
+                }
+                if (selectedAgent !== 'all' && entry.getAttribute('data-agent') !== selectedAgent) {
+                    show = false;
+                }
+
+                if (show) {
+                    entry.classList.remove('tl-hidden');
+                    visibleCount++;
+                } else {
+                    entry.classList.add('tl-hidden');
+                }
+            });
+
+            if (emptyMsg) {
+                emptyMsg.style.display = visibleCount === 0 ? 'block' : 'none';
+            }
+        }
+
+        // Category filter buttons
+        document.addEventListener('click', function(e) {
+            var btn = e.target.closest('.tl-filter-btn');
+            if (!btn) return;
+            if (btn.getAttribute('data-filter') !== 'category') return;
+
+            // Update active state
+            var group = btn.closest('.tl-filter-group');
+            if (group) {
+                group.querySelectorAll('.tl-filter-btn').forEach(function(b) {
+                    b.classList.remove('active');
+                });
+            }
+            btn.classList.add('active');
+            activeCategory = btn.getAttribute('data-value');
+            applyFilters();
+        });
+
+        // Dropdown filters
+        if (rigFilter) {
+            rigFilter.addEventListener('change', applyFilters);
+        }
+        if (agentFilter) {
+            agentFilter.addEventListener('change', applyFilters);
+        }
+    }
+
+    // Init on page load
+    initTimelineFilters();
+
+    // Re-init after HTMX swaps
+    document.body.addEventListener('htmx:afterSwap', function() {
+        initTimelineFilters();
+        // Include rig detail in the HTMX swap pause check
+        var rigDetailEl = document.getElementById('rig-detail');
+        if (rigDetailEl && rigDetailEl.style.display !== 'none') {
+            window.pauseRefresh = true;
+        }
+    });
+
+    // ============================================
+    // CONVOY DRILL-DOWN (expand rows to show tracked issues)
+    // ============================================
+    var convoyCache = {}; // Cache fetched convoy data by ID
+
+    document.addEventListener('click', function(e) {
+        var row = e.target.closest('.convoy-row');
+        if (!row) return;
+
+        e.preventDefault();
+        var convoyId = row.getAttribute('data-convoy-id');
+        if (!convoyId) return;
+
+        // Check if already expanded
+        var existingDetail = row.nextElementSibling;
+        if (existingDetail && existingDetail.classList.contains('convoy-detail-row')) {
+            // Collapse: remove the detail row
+            existingDetail.remove();
+            row.classList.remove('convoy-expanded');
+            var toggle = row.querySelector('.convoy-toggle');
+            if (toggle) toggle.textContent = '▶';
+            return;
+        }
+
+        // Collapse any other expanded convoy
+        document.querySelectorAll('.convoy-detail-row').forEach(function(r) { r.remove(); });
+        document.querySelectorAll('.convoy-row.convoy-expanded').forEach(function(r) {
+            r.classList.remove('convoy-expanded');
+            var t = r.querySelector('.convoy-toggle');
+            if (t) t.textContent = '▶';
+        });
+
+        // Mark this row as expanded
+        row.classList.add('convoy-expanded');
+        var toggleEl = row.querySelector('.convoy-toggle');
+        if (toggleEl) toggleEl.textContent = '▼';
+
+        // Create detail row
+        var detailRow = document.createElement('tr');
+        detailRow.className = 'convoy-detail-row';
+        var detailCell = document.createElement('td');
+        detailCell.colSpan = 4;
+        detailCell.innerHTML = '<div class="tracked-issues"><div class="tracked-issues-loading">Loading tracked issues...</div></div>';
+        detailRow.appendChild(detailCell);
+        row.parentNode.insertBefore(detailRow, row.nextSibling);
+
+        // Check cache first
+        if (convoyCache[convoyId]) {
+            renderConvoyIssues(detailCell, convoyCache[convoyId]);
+            return;
+        }
+
+        // Fetch via /api/run
+        fetch('/api/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command: 'convoy status ' + convoyId + ' --json' })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (!data.success) {
+                detailCell.innerHTML = '<div class="tracked-issues"><div class="tracked-issues-error">Failed to load: ' + escapeHtml(data.error || 'Unknown error') + '</div></div>';
+                return;
+            }
+            try {
+                var parsed = JSON.parse(data.output);
+                convoyCache[convoyId] = parsed;
+                renderConvoyIssues(detailCell, parsed);
+            } catch (err) {
+                detailCell.innerHTML = '<div class="tracked-issues"><div class="tracked-issues-error">Failed to parse response</div></div>';
+            }
+        })
+        .catch(function(err) {
+            detailCell.innerHTML = '<div class="tracked-issues"><div class="tracked-issues-error">Request failed: ' + escapeHtml(err.message) + '</div></div>';
+        });
+    });
+
+    function renderConvoyIssues(cell, data) {
+        var issues = data.tracked || [];
+        if (issues.length === 0) {
+            cell.innerHTML = '<div class="tracked-issues"><div class="tracked-issues-empty">No tracked issues</div></div>';
+            return;
+        }
+
+        var html = '<div class="tracked-issues">';
+        html += '<table class="tracked-issues-table">';
+        html += '<thead><tr><th>Status</th><th>ID</th><th>Title</th><th>Assignee</th><th>Progress</th></tr></thead>';
+        html += '<tbody>';
+
+        for (var i = 0; i < issues.length; i++) {
+            var issue = issues[i];
+
+            // Status badge
+            var statusBadge = '';
+            switch (issue.status) {
+                case 'closed':
+                    statusBadge = '<span class="badge badge-green">Done</span>';
+                    break;
+                case 'in_progress':
+                    statusBadge = '<span class="badge badge-yellow">In Progress</span>';
+                    break;
+                case 'hooked':
+                    statusBadge = '<span class="badge badge-blue">Hooked</span>';
+                    break;
+                default:
+                    statusBadge = '<span class="badge badge-muted">Open</span>';
+            }
+
+            // Assignee - extract short name
+            var assignee = '—';
+            if (issue.assignee) {
+                var parts = issue.assignee.split('/');
+                assignee = parts[parts.length - 1];
+            }
+
+            // Worker info as progress indicator
+            var progress = '';
+            if (issue.status === 'closed') {
+                progress = '<span class="convoy-progress-done">✓</span>';
+            } else if (issue.worker) {
+                var workerName = issue.worker.split('/').pop();
+                progress = '<span class="convoy-progress-active">@' + escapeHtml(workerName) + '</span>';
+                if (issue.worker_age) {
+                    progress += ' <span class="convoy-progress-age">' + escapeHtml(issue.worker_age) + '</span>';
+                }
+            }
+
+            html += '<tr class="tracked-issue-row tracked-issue-' + escapeHtml(issue.status) + '">' +
+                '<td>' + statusBadge + '</td>' +
+                '<td><span class="issue-id">' + escapeHtml(issue.id) + '</span></td>' +
+                '<td class="tracked-issue-title">' + escapeHtml(issue.title) + '</td>' +
+                '<td class="tracked-issue-assignee">' + escapeHtml(assignee) + '</td>' +
+                '<td class="tracked-issue-progress">' + progress + '</td>' +
+                '</tr>';
+        }
+
+        html += '</tbody></table>';
+
+        // Progress summary
+        var completed = data.completed || 0;
+        var total = data.total || issues.length;
+        var pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+        html += '<div class="tracked-issues-summary">';
+        html += '<div class="tracked-issues-progress-bar"><div class="tracked-issues-progress-fill" style="width: ' + pct + '%;"></div></div>';
+        html += '<span class="tracked-issues-progress-text">' + completed + '/' + total + ' completed (' + pct + '%)</span>';
+        html += '</div>';
+
+        html += '</div>';
+        cell.innerHTML = html;
+    }
+
+    function openSessionPreview(sessionName) {
+        window.pauseRefresh = true;
+
+        var preview = document.getElementById('session-preview');
+        var nameEl = document.getElementById('session-preview-name');
+        var contentEl = document.getElementById('session-preview-content');
+        var statusEl = document.getElementById('session-preview-status');
+
+        if (!preview || !contentEl) return;
+
+        // Hide the sessions table, show preview
+        sessionsTable = preview.parentNode.querySelector('table');
+        if (sessionsTable) sessionsTable.style.display = 'none';
+        var emptyState = preview.parentNode.querySelector('.empty-state');
+        if (emptyState) emptyState.style.display = 'none';
+
+        nameEl.textContent = sessionName;
+        contentEl.textContent = 'Loading...';
+        statusEl.textContent = '';
+        preview.style.display = 'block';
+
+        // Fetch immediately
+        fetchSessionPreview(sessionName, contentEl, statusEl);
+
+        // Auto-refresh every 3 seconds
+        if (sessionPreviewInterval) clearInterval(sessionPreviewInterval);
+        sessionPreviewInterval = setInterval(function() {
+            fetchSessionPreview(sessionName, contentEl, statusEl);
+        }, 3000);
+    }
+
+    function fetchSessionPreview(sessionName, contentEl, statusEl) {
+        fetch('/api/session/preview?session=' + encodeURIComponent(sessionName))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error) {
+                    contentEl.textContent = 'Error: ' + data.error;
+                    return;
+                }
+                contentEl.textContent = data.content || '(empty)';
+                // Auto-scroll to bottom
+                contentEl.scrollTop = contentEl.scrollHeight;
+                // Show refresh timestamp
+                var now = new Date();
+                var timeStr = now.getHours() + ':' + (now.getMinutes() < 10 ? '0' : '') + now.getMinutes() + ':' + (now.getSeconds() < 10 ? '0' : '') + now.getSeconds();
+                statusEl.textContent = 'refreshed ' + timeStr;
+            })
+            .catch(function(err) {
+                contentEl.textContent = 'Failed to load preview: ' + err.message;
+            });
+    }
+
+    function closeSessionPreview() {
+        if (sessionPreviewInterval) {
+            clearInterval(sessionPreviewInterval);
+            sessionPreviewInterval = null;
+        }
+
+        var preview = document.getElementById('session-preview');
+        if (preview) preview.style.display = 'none';
+
+        // Show the sessions table again
+        if (sessionsTable) sessionsTable.style.display = '';
+
+        window.pauseRefresh = false;
+    }
+
+    // Back button from session preview
+    var sessionPreviewBack = document.getElementById('session-preview-back');
+    if (sessionPreviewBack) {
+        sessionPreviewBack.addEventListener('click', closeSessionPreview);
     }
 
 })();

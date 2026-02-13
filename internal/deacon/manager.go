@@ -30,7 +30,7 @@ type tmuxOps interface {
 	SetEnvironment(session, key, value string) error
 	ConfigureGasTownSession(session string, theme tmux.Theme, rig, worker, role string) error
 	WaitForCommand(session string, excludeCommands []string, timeout time.Duration) error
-	SetAutoRespawnHook(session string) error
+	SetAutoRespawnHook(session, townRoot, startupCmd string) error
 	AcceptBypassPermissionsWarning(session string) error
 	SendKeysRaw(session, keys string) error
 	GetSessionInfo(name string) (*tmux.SessionInfo, error)
@@ -150,7 +150,9 @@ func (m *Manager) Start(agentOverride string) error {
 	// When Claude exits (for any reason), tmux will automatically respawn it.
 	// This prevents the crash loop where daemon repeatedly restarts Deacon.
 	// Note: SetAutoRespawnHook calls SetRemainOnExit again (harmless, already set above).
-	if err := t.SetAutoRespawnHook(sessionID); err != nil {
+	// Pass startupCmd so the respawn script uses the CURRENT agent config,
+	// not the stale command baked into the tmux pane at creation time.
+	if err := t.SetAutoRespawnHook(sessionID, m.townRoot, startupCmd); err != nil {
 		// Non-fatal: Deacon still works, just won't auto-respawn on crash
 		// Daemon will still restart it, but with a delay
 		fmt.Printf("warning: failed to set auto-respawn hook for deacon: %v\n", err)

@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="/static/dashboard.css">
 </head>
 <body>
-    <div class="dashboard" id="dashboard-main" hx-get="/" hx-trigger="every 10s [!window.pauseRefresh]" hx-swap="morph:outerHTML" hx-ext="morph">
+    <div class="dashboard" id="dashboard-main" hx-get="/" hx-trigger="sse:dashboard-update, every 30s [!window.pauseRefresh && !window.sseConnected]" hx-swap="morph:outerHTML" hx-ext="morph">
         <header>
             <pre class="ascii-title">  __  __    __   _____ __  _   _  __  _    ___ __  __  _ _____ ___  __  _      ______ __  _ _____ ___ ___ 
  / _]/  \ /' _| |_   _/__\| | | ||  \| |  / _//__\|  \| |_   _| _ \/__\| |    / _/ __|  \| |_   _| __| _ \
@@ -19,8 +19,8 @@
                 <button class="cmd-btn" id="open-palette-btn">
                     <span>⌘</span> Commands <kbd>⌘K</kbd>
                 </button>
-                <span class="refresh-info">
-                    Auto-refresh: 10s
+                <span class="refresh-info" id="refresh-info">
+                    <span id="connection-status">Connecting...</span>
                     <span class="htmx-indicator">⟳</span>
                 </span>
             </div>
@@ -122,6 +122,7 @@
                 <div class="panel-header">
                     <h2>🚚 Convoys</h2>
                     <span class="count">{{len .Convoys}}</span>
+                    <button class="collapse-btn" aria-label="Toggle panel">▼</button>
                     <button class="expand-btn">Expand</button>
                 </div>
                 <div class="panel-body">
@@ -137,8 +138,9 @@
                         </thead>
                         <tbody>
                             {{range .Convoys}}
-                            <tr class="convoy-row">
+                            <tr class="convoy-row" data-convoy-id="{{.ID}}">
                                 <td>
+                                    <span class="convoy-toggle">▶</span>
                                     {{if eq .WorkStatus "complete"}}
                                     <span class="badge badge-green">✓</span>
                                     {{else if eq .WorkStatus "active"}}
@@ -184,6 +186,7 @@
                 <div class="panel-header">
                     <h2>👨‍💼 Crew</h2>
                     <span class="count" id="crew-count">0</span>
+                    <button class="collapse-btn" aria-label="Toggle panel">▼</button>
                     <button class="expand-btn">Expand</button>
                 </div>
                 <div class="panel-body">
@@ -214,6 +217,7 @@
                 <div class="panel-header">
                     <h2>⚙️ Workers</h2>
                     <span class="count">{{len .Workers}}</span>
+                    <button class="collapse-btn" aria-label="Toggle panel">▼</button>
                     <button class="expand-btn">Expand</button>
                 </div>
                 <div class="panel-body">
@@ -275,6 +279,7 @@
                 <div class="panel-header">
                     <h2>📟 Sessions</h2>
                     <span class="count">{{len .Sessions}}</span>
+                    <button class="collapse-btn" aria-label="Toggle panel">▼</button>
                     <button class="expand-btn">Expand</button>
                 </div>
                 <div class="panel-body">
@@ -290,7 +295,7 @@
                         </thead>
                         <tbody>
                             {{range .Sessions}}
-                            <tr>
+                            <tr class="session-row" data-session-name="{{.Name}}">
                                 <td>
                                     <span class="role-{{.Role}}">{{.Role}}</span>
                                 </td>
@@ -306,26 +311,75 @@
                         <p>No active sessions</p>
                     </div>
                     {{end}}
+                    <!-- Session terminal preview -->
+                    <div id="session-preview" style="display:none;">
+                        <div class="session-preview-header">
+                            <button id="session-preview-back" class="mail-back-btn">← Back</button>
+                            <span id="session-preview-name" class="session-preview-title"></span>
+                            <span id="session-preview-status" class="session-preview-refresh-status"></span>
+                        </div>
+                        <pre id="session-preview-content" class="session-preview-content">Loading...</pre>
+                    </div>
                 </div>
             </div>
 
-            <!-- Activity Feed Panel -->
-            <div class="panel">
+            <!-- Activity Timeline Panel -->
+            <div class="panel" id="activity-panel">
                 <div class="panel-header">
                     <h2>📜 Activity</h2>
                     <span class="count">{{len .Activity}}</span>
+                    <button class="collapse-btn" aria-label="Toggle panel">▼</button>
                     <button class="expand-btn">Expand</button>
                 </div>
+                {{if .Activity}}
+                <div class="tl-filters">
+                    <div class="tl-filter-group">
+                        <label>Category:</label>
+                        <button class="tl-filter-btn active" data-filter="category" data-value="all">All</button>
+                        <button class="tl-filter-btn" data-filter="category" data-value="agent">Agent</button>
+                        <button class="tl-filter-btn" data-filter="category" data-value="work">Work</button>
+                        <button class="tl-filter-btn" data-filter="category" data-value="comms">Comms</button>
+                        <button class="tl-filter-btn" data-filter="category" data-value="system">System</button>
+                    </div>
+                    <div class="tl-filter-group">
+                        <label>Rig:</label>
+                        <select class="tl-filter-select" id="tl-rig-filter">
+                            <option value="all">All rigs</option>
+                        </select>
+                    </div>
+                    <div class="tl-filter-group">
+                        <label>Agent:</label>
+                        <select class="tl-filter-select" id="tl-agent-filter">
+                            <option value="all">All agents</option>
+                        </select>
+                    </div>
+                </div>
+                {{end}}
                 <div class="panel-body activity-feed">
                     {{if .Activity}}
-                    <div class="feed-list">
+                    <div class="tl-timeline" id="activity-timeline">
                         {{range .Activity}}
-                        <div class="feed-item">
-                            <span class="feed-icon">{{.Icon}}</span>
-                            <span class="feed-summary">{{.Summary}}</span>
-                            <span class="feed-time">{{.Time}}</span>
+                        <div class="tl-entry {{activityTypeClass .Category}}" data-category="{{.Category}}" data-rig="{{.Rig}}" data-agent="{{.Actor}}" data-type="{{.Type}}" data-ts="{{.RawTimestamp}}">
+                            <div class="tl-rail">
+                                <span class="tl-time">{{.Time}}</span>
+                                <span class="tl-node"></span>
+                            </div>
+                            <div class="tl-content">
+                                <div class="tl-header">
+                                    <span class="tl-icon">{{.Icon}}</span>
+                                    <span class="tl-summary">{{.Summary}}</span>
+                                </div>
+                                <div class="tl-meta">
+                                    {{if .Actor}}<span class="tl-badge tl-badge-agent">{{.Actor}}</span>{{end}}
+                                    {{if .Rig}}<span class="tl-badge tl-badge-rig">{{.Rig}}</span>{{end}}
+                                    <span class="tl-badge tl-badge-type">{{.Type}}</span>
+                                </div>
+                            </div>
                         </div>
                         {{end}}
+                    </div>
+                    <div class="tl-empty-filtered" id="tl-empty-filtered" style="display: none;">
+                        <p>No events match current filters</p>
                     </div>
                     {{else}}
                     <div class="empty-state">
@@ -347,23 +401,14 @@
                         <button class="mail-tab" data-tab="all">All Traffic</button>
                     </div>
                     <button class="compose-btn" id="compose-mail-btn" title="Compose new message">✎</button>
+                    <button class="collapse-btn" aria-label="Toggle panel">▼</button>
                     <button class="expand-btn">Expand</button>
                 </div>
                 <div class="panel-body">
-                    <!-- Inbox view (overseer inbox via API) -->
+                    <!-- Inbox view (threaded conversations via API) -->
                     <div id="mail-list">
                         <div class="loading-state" id="mail-loading">Loading inbox...</div>
-                        <table id="mail-table" style="display: none;">
-                            <thead>
-                                <tr>
-                                    <th>From</th>
-                                    <th>Subject</th>
-                                    <th>Time</th>
-                                </tr>
-                            </thead>
-                            <tbody id="mail-tbody">
-                            </tbody>
-                        </table>
+                        <div id="mail-threads" style="display: none;"></div>
                         <div class="empty-state" id="mail-empty" style="display: none;">
                             <p>No mail in inbox</p>
                         </div>
@@ -450,6 +495,7 @@
                 <div class="panel-header">
                     <h2>🔀 Merge Queue</h2>
                     <span class="count">{{len .MergeQueue}}</span>
+                    <button class="collapse-btn" aria-label="Toggle panel">▼</button>
                     <button class="expand-btn">Expand</button>
                 </div>
                 <div class="panel-body">
@@ -464,6 +510,7 @@
                                     <th>Title</th>
                                     <th>CI</th>
                                     <th>Merge</th>
+                                    <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -481,6 +528,11 @@
                                         {{if eq .Mergeable "ready"}}<span class="badge badge-green">Ready</span>
                                         {{else if eq .Mergeable "conflict"}}<span class="badge badge-red">Conflict</span>
                                         {{else}}<span class="badge badge-muted">Pending</span>{{end}}
+                                    </td>
+                                    <td class="mq-actions" onclick="event.stopPropagation()">
+                                        <button class="mq-action-btn mq-approve-btn" data-pr-url="{{.URL}}" data-pr-repo="{{.Repo}}" data-pr-number="{{.Number}}" title="Approve PR">✓</button>
+                                        <button class="mq-action-btn mq-reject-btn" data-pr-url="{{.URL}}" data-pr-repo="{{.Repo}}" data-pr-number="{{.Number}}" title="Close PR">✕</button>
+                                        <button class="mq-action-btn mq-retry-btn" data-pr-url="{{.URL}}" data-pr-repo="{{.Repo}}" data-pr-number="{{.Number}}" title="Retry checks">↻</button>
                                     </td>
                                 </tr>
                                 {{end}}
@@ -526,6 +578,11 @@
                                 <h4>Checks</h4>
                                 <div id="pr-detail-checks"></div>
                             </div>
+                            <div class="pr-detail-actions">
+                                <button id="pr-action-approve" class="mq-detail-btn mq-detail-approve">✓ Approve</button>
+                                <button id="pr-action-reject" class="mq-detail-btn mq-detail-reject">✕ Close</button>
+                                <button id="pr-action-retry" class="mq-detail-btn mq-detail-retry">↻ Retry</button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -536,6 +593,7 @@
                 <div class="panel-header">
                     <h2>🚨 Escalations</h2>
                     <span class="count{{if .Escalations}} count-alert{{end}}">{{len .Escalations}}</span>
+                    <button class="collapse-btn" aria-label="Toggle panel">▼</button>
                     <button class="expand-btn">Expand</button>
                 </div>
                 <div class="panel-body">
@@ -547,11 +605,12 @@
                                 <th>Issue</th>
                                 <th>From</th>
                                 <th>Age</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             {{range .Escalations}}
-                            <tr>
+                            <tr class="escalation-row" data-escalation-id="{{.ID}}">
                                 <td>
                                     {{if eq .Severity "critical"}}<span class="badge badge-red">CRIT</span>
                                     {{else if eq .Severity "high"}}<span class="badge badge-orange">HIGH</span>
@@ -564,6 +623,13 @@
                                 </td>
                                 <td>{{.EscalatedBy}}</td>
                                 <td>{{.Age}}</td>
+                                <td class="escalation-actions">
+                                    {{if not .Acked}}
+                                    <button class="esc-btn esc-ack-btn" data-action="ack" data-id="{{.ID}}" title="Acknowledge">👍 Ack</button>
+                                    {{end}}
+                                    <button class="esc-btn esc-resolve-btn" data-action="resolve" data-id="{{.ID}}" title="Resolve">✓ Resolve</button>
+                                    <button class="esc-btn esc-reassign-btn" data-action="reassign" data-id="{{.ID}}" title="Reassign">↻ Reassign</button>
+                                </td>
                             </tr>
                             {{end}}
                         </tbody>
@@ -579,42 +645,80 @@
             <!-- Row 3: Rigs, Dogs, Health -->
 
             <!-- Rigs Panel -->
-            <div class="panel">
+            <div class="panel" id="rigs-panel">
                 <div class="panel-header">
                     <h2>🏗️ Rigs</h2>
                     <span class="count">{{len .Rigs}}</span>
+                    <button class="collapse-btn" aria-label="Toggle panel">▼</button>
                     <button class="expand-btn">Expand</button>
                 </div>
                 <div class="panel-body">
-                    {{if .Rigs}}
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Polecats</th>
-                                <th>Crew</th>
-                                <th>Agents</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {{range .Rigs}}
-                            <tr>
-                                <td><span class="rig-name">{{.Name}}</span></td>
-                                <td>{{.PolecatCount}}</td>
-                                <td>{{.CrewCount}}</td>
-                                <td class="agent-icons">
-                                    <span class="agent-icon{{if .HasWitness}} active{{end}}" title="Witness">👁</span>
-                                    <span class="agent-icon{{if .HasRefinery}} active{{end}}" title="Refinery">⚗️</span>
-                                </td>
-                            </tr>
-                            {{end}}
-                        </tbody>
-                    </table>
-                    {{else}}
-                    <div class="empty-state">
-                        <p>No rigs configured</p>
+                    <!-- Rig List View -->
+                    <div id="rig-list">
+                        {{if .Rigs}}
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Polecats</th>
+                                    <th>Crew</th>
+                                    <th>Agents</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {{range .Rigs}}
+                                <tr class="rig-row" data-rig-name="{{.Name}}">
+                                    <td><span class="rig-name">{{.Name}}</span></td>
+                                    <td>{{.PolecatCount}}</td>
+                                    <td>{{.CrewCount}}</td>
+                                    <td class="agent-icons">
+                                        <span class="agent-icon{{if .HasWitness}} active{{end}}" title="Witness">👁</span>
+                                        <span class="agent-icon{{if .HasRefinery}} active{{end}}" title="Refinery">⚗️</span>
+                                    </td>
+                                </tr>
+                                {{end}}
+                            </tbody>
+                        </table>
+                        {{else}}
+                        <div class="empty-state">
+                            <p>No rigs configured</p>
+                        </div>
+                        {{end}}
                     </div>
-                    {{end}}
+                    <!-- Rig Detail View (hidden by default) -->
+                    <div id="rig-detail" style="display: none;">
+                        <div class="detail-header">
+                            <button id="rig-back-btn" class="btn-back">← Back</button>
+                        </div>
+                        <div class="rig-detail-content">
+                            <div class="rig-detail-title">
+                                <span class="rig-name" id="rig-detail-name"></span>
+                                <span class="rig-detail-url" id="rig-detail-url"></span>
+                            </div>
+                            <div class="rig-detail-stats" id="rig-detail-stats"></div>
+                            <div class="rig-detail-health" id="rig-detail-health"></div>
+                            <div class="rig-detail-section">
+                                <h4>Agents</h4>
+                                <table id="rig-detail-agents-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Name</th>
+                                            <th>Role</th>
+                                            <th>Status</th>
+                                            <th>Hook</th>
+                                            <th>Activity</th>
+                                            <th>Session</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="rig-detail-agents"></tbody>
+                                </table>
+                            </div>
+                            <div class="rig-detail-section" id="rig-detail-hooks-section" style="display: none;">
+                                <h4>Hooks</h4>
+                                <div id="rig-detail-hooks"></div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -623,6 +727,7 @@
                 <div class="panel-header">
                     <h2>🐕 Dogs</h2>
                     <span class="count">{{len .Dogs}}</span>
+                    <button class="collapse-btn" aria-label="Toggle panel">▼</button>
                     <button class="expand-btn">Expand</button>
                 </div>
                 <div class="panel-body">
@@ -664,6 +769,7 @@
                 <div class="panel-header">
                     <h2>📋 Queues</h2>
                     <span class="count">{{len .Queues}}</span>
+                    <button class="collapse-btn" aria-label="Toggle panel">▼</button>
                     <button class="expand-btn">Expand</button>
                 </div>
                 <div class="panel-body">
@@ -705,6 +811,7 @@
                     <h2>📋 Work</h2>
                     <span class="count">{{len .Issues}}</span>
                     <button class="new-issue-btn" onclick="openIssueModal()">+ New</button>
+                    <button class="collapse-btn" aria-label="Toggle panel">▼</button>
                     <button class="expand-btn">Expand</button>
                 </div>
                 <div class="panel-tabs">
@@ -789,6 +896,8 @@
                 <div class="panel-header">
                     <h2>🪝 Hooks</h2>
                     <span class="count{{if .Hooks}} {{end}}">{{len .Hooks}}</span>
+                    <button class="collapse-btn" aria-label="Toggle panel">▼</button>
+                    <button class="hook-attach-btn" onclick="openHookAttach()" title="Attach bead to hook">+ Attach</button>
                     <button class="expand-btn">Expand</button>
                 </div>
                 <div class="panel-body">
@@ -800,6 +909,7 @@
                                 <th>Title</th>
                                 <th>Agent</th>
                                 <th>Hooked</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -814,6 +924,10 @@
                                     {{else}}
                                     {{.Age}}
                                     {{end}}
+                                </td>
+                                <td class="hook-actions">
+                                    <button class="hook-action-btn hook-detach-btn" data-hook-id="{{.ID}}" data-hook-agent="{{.Assignee}}" title="Detach this hook">Detach</button>
+                                    <button class="hook-action-btn hook-clear-btn" data-hook-id="{{.ID}}" data-hook-agent="{{.Assignee}}" title="Clear agent hook">Clear</button>
                                 </td>
                             </tr>
                             {{end}}
@@ -832,7 +946,7 @@
     <!-- Command Palette (outside HTMX-refreshed area) -->
     <div id="command-palette-overlay" class="command-palette-overlay">
         <div class="command-palette">
-            <input type="text" id="command-palette-input" class="command-palette-input" placeholder="Search commands..." autocomplete="off">
+            <input type="text" id="command-palette-input" class="command-palette-input" placeholder="Type to search commands..." autocomplete="off">
             <div id="command-palette-results" class="command-palette-results"></div>
             <div class="command-palette-footer">
                 <span><kbd>↑↓</kbd> navigate</span>
@@ -894,6 +1008,6 @@
         <div id="output-panel-content" class="output-panel-content"></div>
     </div>
 
-    <script src="/static/dashboard.js?v=2"></script>
+    <script src="/static/dashboard.js?v=3"></script>
 </body>
 </html>
